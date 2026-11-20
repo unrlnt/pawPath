@@ -253,6 +253,11 @@ export interface TilesFetchResult {
   readonly features: readonly Feature[];
   /** Tiles whose data is now present (from cache or freshly fetched). */
   readonly loadedTileIds: readonly TileId[];
+  /**
+   * Layers whose query failed, so their absence from `features` means "not
+   * fetched", NOT "nothing here". A cache must never store these as empty.
+   */
+  readonly failedLayers: readonly LayerKey[];
   /** Present when some or all of the request failed. */
   readonly error: TileSourceError | undefined;
   readonly meta: TileFetchMeta;

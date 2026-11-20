@@ -463,6 +463,7 @@ export class OverpassTileSource implements TileSource {
       return {
         features: [],
         loadedTileIds: [],
+        failedLayers: [],
         error:
           bbox === undefined && request.tileIds.length > 0
             ? new TileSourceError('invalidRequest', 'No usable tile ids in request')
@@ -476,6 +477,7 @@ export class OverpassTileSource implements TileSource {
       return {
         features: [],
         loadedTileIds: [],
+        failedLayers: [],
         error: new TileSourceError(
           'invalidRequest',
           `Unknown layer key(s): ${unknown.join(', ')}`,
@@ -493,6 +495,7 @@ export class OverpassTileSource implements TileSource {
     let attempts = 0;
     let truncated = false;
     let firstError: TileSourceError | undefined;
+    const failedLayers: LayerKey[] = [];
 
     for (const [output, groupLayers] of groups) {
       const { clientMs, serverS } = timeoutsFor(output);
@@ -529,6 +532,7 @@ export class OverpassTileSource implements TileSource {
         // Keep going: the amenity group may have succeeded even if polygons
         // failed, and partial data beats none.
         firstError ??= run.error;
+        failedLayers.push(...groupLayers.map((layer) => layer.key));
         continue;
       }
 
@@ -540,7 +544,10 @@ export class OverpassTileSource implements TileSource {
 
     return {
       features,
-      loadedTileIds: firstError === undefined ? request.tileIds : [],
+      // Tiles are loaded if ANY group answered; which layers did not is
+      // reported separately so a cache can tell "empty" from "failed".
+      loadedTileIds: failedLayers.length < request.layers.length ? request.tileIds : [],
+      failedLayers,
       error: firstError,
       meta: {
         durationMs: Date.now() - startedAt,

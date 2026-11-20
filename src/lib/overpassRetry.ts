@@ -43,11 +43,12 @@ export function backoffDelayMs(attemptIndex: number, random: () => number = Math
 /**
  * HTTP statuses worth retrying.
  *
- * 400 and 406 are absent deliberately. 400 means our own QL is malformed and no
- * amount of retrying will fix it. 406 is what overpass-api.de currently answers
- * to programmatic browser requests: it is a policy refusal, not congestion, so
- * retrying only wastes the instance's time — that instance is demoted and
- * parked for the session instead.
+ * 400 and 406 are absent deliberately, and both mean the bug is ours. 400 is
+ * malformed QL. 406 is content negotiation: we advertised an `Accept` Overpass
+ * cannot satisfy (a browser address bar sends `text/html` and gets exactly
+ * this). It is NOT an instance refusing programmatic clients — that reading
+ * was wrong and has been removed. Neither is retried, rotated, or counted
+ * against the instance's health.
  */
 export const RETRYABLE_HTTP_STATUSES: readonly number[] = [429, 500, 502, 503, 504];
 

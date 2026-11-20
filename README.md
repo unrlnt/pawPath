@@ -33,8 +33,8 @@ In dev, the map page has a **dev** button (bottom left) with:
 - **cache inspector** — entries, approximate size, hits/misses, evictions, clear;
 - **session request budget** — against the Overpass usage policy's ~10,000
   requests / ~1 GB per user per day safety margin;
-- **instance health** — which instances are parked by the circuit breaker or
-  demoted for refusing programmatic access;
+- **instance health** — which instances are parked by the circuit breaker
+  (a 406 is never counted: it means our own `Accept` header is wrong);
 - **connectivity tester** — one trivial `out count` per instance, no retries,
   bypassing the tile pipeline entirely. This is the first thing to run when the
   map has no data: it answers "are the instances reachable from *this* browser"

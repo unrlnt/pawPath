@@ -632,9 +632,10 @@ export async function runOverpassQuery(
 
       // 400 and 406 are both OUR bug: a malformed query, or an Accept header
       // Overpass cannot satisfy. Every instance will answer identically, so
-      // rotating wastes their slots as well as our time.
+      // rotating wastes their slots as well as our time. Deliberately NOT
+      // recorded against the instance: it says nothing about its health, and
+      // three of them in a row would otherwise park a healthy instance.
       if (error.status !== undefined && isFatalStatus(error.status)) {
-        recordFailure(instance.url, error.message);
         return {
           ok: false,
           error,

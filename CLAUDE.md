@@ -109,6 +109,7 @@ plainly rather than falling back to OSM's tile servers.
 | Air quality | Open-Meteo Air Quality | Global | European AQI + PM2.5/PM10/O₃ |
 | Bathing water locations | EEA WISE | EU | Phase 6 |
 | Live algae warnings | zwemwater.nl (NL), Länder portals (DE) | Fragmented | Phase 6, via n8n |
+| Place search | Nominatim (public) | Global | Added in Phase 2, never recorded here. Its policy forbids client-side autocomplete — see §12 audit |
 
 ### Overpass instances and retry policy
 
@@ -120,8 +121,10 @@ connectivity tester confirms planet coverage and CORS.
 
 1. `https://overpass.kumi.systems/api/interpreter` — primary; its wiki entry
    permits any purpose, and it has the largest public capacity.
-2. `https://overpass.private.coffee/api/interpreter`
-3. `https://overpass-api.de/api/interpreter` — **last**, see below.
+2. `https://overpass-api.de/api/interpreter` — the reference instance, at
+   **normal priority**. It was once demoted for "filtering programmatic
+   requests"; that was wrong (see "HTTP 406" below).
+3. `https://overpass.private.coffee/api/interpreter`
 
 **Retry before rotating.** Rotating on the first error was the Phase 1/2 bug:
 it burned every instance in seconds and gave up in 10–18 s having never really
@@ -146,9 +149,11 @@ Every Overpass request MUST stay a "simple" CORS request, meaning no preflight:
 - `Content-Type: application/x-www-form-urlencoded` — one of only three
   safelisted values. **Never `application/json`**: that turns every request into
   a preflighted one, and a failed `OPTIONS` preflight surfaces as a bare
-  `TypeError` with no status and no response. That is exactly the "pre-HTTP
-  fetch rejection on all three instances at once" from Run 2, and it is
-  indistinguishable from the servers being down.
+  `TypeError` with no status and no response, indistinguishable from the
+  servers being down. (Run 2's `TypeError`s were *not* this — the shape was
+  already correct then. And the reverse also holds: on 2026-11-20 a connection
+  reset by a network proxy showed up in Chrome as "blocked by CORS policy". A
+  CORS message in the console does not prove a CORS problem.)
 - `Accept: application/json, */*;q=0.8` (safelisted, see above);
 - no other headers, and never `User-Agent` — browsers forbid it.
 
@@ -185,6 +190,12 @@ now bounds query **size**, not request **count** — that is why it stays.
 - Keep queries as narrow as the active filters allow.
 
 ### HTTP 406 — resolved, and it was never bot filtering
+
+**In one line:** the 406 was `Accept`-header content negotiation. A browser
+address bar sends `Accept: text/html,…` and gets 406; `fetch()` and curl send a
+wildcard `Accept` and get 200. Verified from a real browser. Every Overpass
+request therefore sends an explicit `Accept: application/json, */*;q=0.8`
+(`OVERPASS_ACCEPT_HEADER`), and `overpass-api.de` is at normal priority.
 
 **The earlier conclusion in this file — that instances filter "programmatic
 requests" — was WRONG.** It came from a Node experiment whose `User-Agent`
@@ -480,11 +491,14 @@ Constraints that keep this compatible with §2:
 
 ## 12. Status
 
-- [x] Phase 1 — Scaffold and recon *(complete; recon runs still to be executed
-      in a browser — see "Recon findings")*
+- [x] Phase 1 — Scaffold and recon *(code complete. **No recon run has ever completed
+      cleanly**: Run 1 was a self-inflicted burst, and from Phase 2.5 until the
+      2026-11-20 audit every recon query sent `[timeout:[object Object]]` and
+      was rejected with 400. Fixed; Run 2 still to be executed.)*
 - [x] Phase 1.6 — Post-Run-1 selector and politeness corrections
-- [x] Phase 2 — Map shell *(complete, including the 2.5 corrections: 406
-      resolved, request shape pinned, batched fetching, latency budget)*
+- [~] Phase 2 — Map shell *(code complete, including the 2.5 corrections.
+      **Not yet confirmed end to end:** features have never been seen on the
+      map. See "Phase 2 — verification status" below.)*
 - [ ] Phase 3 — Conditions engine
 - [ ] Phase 4 — Symbol layers and filters
 - [ ] Phase 5 — Area layers
@@ -492,23 +506,70 @@ Constraints that keep this compatible with §2:
 - [ ] Phase 7 — Public launch
 - [ ] Phase 8 — Regional enrichment (post-launch)
 
-### Phase 2 — what still needs your eyes
+### Phase 2 — verification status (2026-11-20)
 
-Everything is built, typechecked and unit tested. One thing can only be settled
-from your browser on your network:
+Settled from a headless Chromium in a cloud sandbox, Almere 52.3508, 5.2647,
+z14, default layers (shade, off-leash, water):
 
-**Run the connectivity tester** (map page → `dev` button → "test all
-instances"). From this development sandbox, `kumi.systems` and `private.coffee`
-accept a TCP connection and then never respond (20 s+), while `overpass-api.de`
-answers in 1.7 s — almost certainly sandbox egress filtering rather than the
-instances being down. The tester tells you the truth for your network; if the
-order is wrong for you, `OVERPASS_INSTANCE_CONFIGS` is one edit.
+- **Basemap renders.** Verified with OpenFreeMap via `VITE_MAP_STYLE_URL` (no
+  MapTiler key was available to the sandbox; the MapTiler path is the same
+  code with a different URL).
+- **The Overpass request is correct on the wire.** One batched POST for the 4
+  viewport tiles, `application/x-www-form-urlencoded`, `Accept:
+  application/json, */*;q=0.8`, no non-safelisted headers, `[timeout:40]`.
+- **Retry, rotation and status messages behave as designed**: 3 attempts on
+  kumi.systems, rotation to overpass-api.de, a readable final error.
+- **Features: NOT confirmed.** No Overpass instance answers from that cloud
+  even with the hosts allow-listed: `overpass-api.de` resets the TLS
+  handshake, kumi.systems and private.coffee accept and never respond. The
+  basemap host on the same proxy works, so this is upstream refusing
+  datacenter egress — the same thing the Phase 2 sandbox saw, and not evidence
+  about the instances from a home connection.
 
-There is no MapTiler key in the repo, so the map currently renders a "no basemap
-configured" notice. Copy `.env.example` to `.env.local`, add a free key, and
-restart.
+**What still needs your browser** (≈2 minutes): `cp .env.example .env.local`,
+add `VITE_MAPTILER_KEY` (or `VITE_MAP_STYLE_URL=https://tiles.openfreemap.org/styles/liberty`),
+`npm run dev`, open `http://localhost:5173`, search "Almere", zoom to 14. Blue
+dots should appear within seconds. Then `dev` → "test all instances". Record
+the result here before Phase 3 starts.
 
 ### Decisions log
+
+**Audit — 2026-11-20 (repo moved to GitHub; first cloud session)**
+
+Full write-up, including the implemented-vs-claimed table and a stack
+proposal awaiting a decision: `docs/audit-2026-11-20.md`.
+
+- **Recon and `fetchTile` were sending `[timeout:[object Object]]`.** Phase 2.5
+  turned `OVERPASS_SERVER_TIMEOUT_S` into a per-group object; the default in
+  `buildOverpassQL` was an unannotated destructuring default, which TypeScript
+  silently widened to `number | object`, so the type checker never complained.
+  Overpass answers that with 400, which is classed as fatal — every recon probe
+  failed on its first attempt. Only `fetchTiles` (the map path) passed an
+  explicit timeout and was unaffected. Fixed, annotated, and pinned by a test.
+- **A 406 still counted against instance health.** §5 says it must not; the
+  fatal-status path called `recordFailure`, so three 406s would park a healthy
+  instance. Removed; the test now asserts zero recorded failures.
+- **A partly-failed batch cached the failed layers as empty for 30 days.**
+  `CachedTileSource` wrote every requested layer whenever any feature came
+  back. Latent on the map path (it requests one output group per call) but
+  real for any mixed request. `TilesFetchResult.failedLayers` now tells the
+  cache which layers were answered; only those are written.
+- **Stale 406 comments** in `overpassRetry.ts`, `overpassHealth.ts` and the
+  README still described "policy refusal / demotion". Corrected.
+- **Claims below that were false or superseded are now marked inline**, not
+  deleted, so the history stays readable: sticky rotation (never implemented),
+  "two requests per tile" (superseded by batching), the Phase 1.6 backoff
+  numbers (superseded by Phase 2), "verified against live instances" (only
+  against failing ones), and the `User-Agent` "policing" line.
+- **Decisions that were made in code but never written down**, recorded here:
+  Nominatim place search (search-as-you-type, which its usage policy forbids —
+  must become submit-on-Enter or move to Photon); long-press / right-click
+  "drop a pin"; Almere as the fallback centre for *every* visitor worldwide;
+  session budget of 1,000 requests / 100 MB; IndexedDB LRU limits of 2,000
+  entries / 40 MB; 300 ms between Overpass requests; `osm.ch` and `osm.jp` as
+  unverified candidate instances; polygon layers fetched with `out geom` in
+  Phase 2 although only their centre point is drawn (payload paid for nothing
+  until Phase 5).
 
 **Phase 2.5 — corrections after the browser test**
 
@@ -565,8 +626,10 @@ restart.
   normal and clear on retry, and rotating through every instance on the first
   error meant we gave up in 10–18 s without a single genuine retry. Now: 3
   attempts per instance, 5 total, jittered exponential backoff, rotation only
-  after an instance has really been tried. Verified against live instances —
-  the loop retries, backs off, rotates and parks exactly as designed.
+  after an instance has really been tried. *Audit 2026-11-20: "verified
+  against live instances" overstated it — it was verified only against
+  instances that were failing from a sandbox. The loop has never been observed
+  completing a success end to end.*
 - **Jitter is mandatory, not decorative.** Every client that hit the same outage
   would otherwise retry in lockstep and rebuild the burst. Equal jitter: half
   the delay fixed, half random (`OVERPASS_BACKOFF_JITTER`).
@@ -663,7 +726,8 @@ back in 1–3 s. Fixes:
 - **Recon is now deliberately slow.** 5 s minimum between queries, 30 s between
   presets, both in `config.ts`. A full four-preset sweep takes minutes, and that
   is faster end to end than Run 1's burst was.
-- **Backoff before rotation.** On 429/504/timeout the client now retries the
+- *(Superseded by the Phase 2 retry policy: ~1 s base, 30 s cap, 3 per
+  instance, 5 total, jittered.)* **Backoff before rotation.** On 429/504/timeout the client now retries the
   *same* instance with exponential backoff (5 s, doubling, capped at 60 s, 3
   attempts) before rotating. Immediate rotation spread our own queue across all
   three instances and multiplied the load — it made things worse, not better.
@@ -691,7 +755,9 @@ back in 1–3 s. Fixes:
   layer, including layers that returned nothing), and one caveat for Phase 5:
   a centre-only entry must count as a miss for a caller needing geometry.
   Described in §8.
-- **`dog=off_leash` / `dog=leashed` confirmed as first-class selectors**, not
+- *(Corrected in Phase 1.6: `dog=off_leash` is not a valid OSM value. The
+  first-class selectors are `dog=unleashed`, `dog=designated`, `dog=leashed`,
+  `dog=no`, `dog=yes`.)* **`dog=off_leash` / `dog=leashed` confirmed as first-class selectors**, not
   provisional alternatives to `leisure=dog_park`. Off-leash zones commonly exist
   inside ordinary parks, forests and beaches with no `dog_park` feature; a Dutch
   *losloopgebied* normally is exactly that. Thin `dog=*` coverage in a region is
@@ -719,7 +785,8 @@ back in 1–3 s. Fixes:
   `src/data/sources/layers.ts`.** Query building, normalisation, level
   derivation and the recon page are all driven from that table, so adding a
   layer means adding one entry there and nothing else.
-- **At most two Overpass requests per tile, not one per layer.** Layers are
+- *(Superseded in Phase 2.5: one request per output group per **viewport**,
+  not per tile.)* **At most two Overpass requests per tile, not one per layer.** Layers are
   grouped by the output mode they need — `out center` for amenities (cheap),
   `out geom` for polygons (expensive). Elements are attributed back to layers
   client-side by re-evaluating the same tag conditions. This keeps the request
@@ -728,15 +795,20 @@ back in 1–3 s. Fixes:
 - **`OVERPASS_MAX_CONCURRENCY = 1`.** Public instances allow ~2 slots per IP;
   using one leaves headroom and makes bursts of tile queries safe by
   construction.
-- **Instance rotation is sticky.** Whichever instance last answered is tried
-  first next time, so a degraded instance is not re-tried on every query.
+- ~~**Instance rotation is sticky.**~~ *Audit 2026-11-20: never implemented.
+  `instancesInPreferenceOrder` uses the configured order, with parked
+  instances moved last. The circuit breaker is what keeps a degraded instance
+  from being retried on every query.*
 - **Identification is via a query comment, not a header.** Browsers forbid
   setting `User-Agent`, so every generated query starts with
   `// PawPath (<contact URL>) — <context>`. `APP_CONTACT_URL` in `config.ts`
   must be set and kept current: it is the only way an instance operator can
   reach us before blocking (currently unset — see the corrections above).
-  Confirmed empirically that `overpass-api.de` does police the
-  `User-Agent` header (a request sent as `node` is answered with HTTP 406).
+  ~~Confirmed empirically that `overpass-api.de` does police the
+  `User-Agent` header.~~ *WRONG, and the root of the later "filters
+  programmatic requests" mistake. The 406 is `Accept` content negotiation
+  (§5). Browsers cannot set `User-Agent` anyway, so it never mattered to the
+  app.*
 - **`surface` is queried as `highway=* + surface=*`, not bare `surface=*`.**
   Bare `surface` returns every tagged polygon in the tile and is not walkable
   data.

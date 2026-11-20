@@ -211,6 +211,7 @@ export class CachedTileSource implements TileSource {
       return {
         features: cachedFeatures,
         loadedTileIds: [...loaded],
+        failedLayers: [],
         error: undefined,
         meta: {
           durationMs: Date.now() - startedAt,
@@ -234,14 +235,23 @@ export class CachedTileSource implements TileSource {
       layers: missingLayers,
     });
 
-    if (fetched.features.length > 0 || fetched.error === undefined) {
-      await this.writeSplitByTile(missingByLayer, fetched.features, wantsGeometry);
-      for (const tileId of missingTiles) loaded.add(tileId);
+    // Write only layers that were actually answered. A failed group's layers
+    // come back with no features, and storing that as an empty entry would
+    // pin "nothing here" for the whole TTL — the empty-tile rule applies to
+    // real answers only.
+    const failed = new Set(fetched.failedLayers);
+    const answered = new Map(
+      [...missingByLayer].filter(([layer]) => !failed.has(layer)),
+    );
+    if (answered.size > 0) {
+      await this.writeSplitByTile(answered, fetched.features, wantsGeometry);
+      for (const tileIds of answered.values()) for (const tileId of tileIds) loaded.add(tileId);
     }
 
     return {
       features: [...cachedFeatures, ...fetched.features],
       loadedTileIds: [...loaded],
+      failedLayers: fetched.failedLayers,
       error: fetched.error,
       meta: {
         ...fetched.meta,

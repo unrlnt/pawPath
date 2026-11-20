@@ -67,14 +67,18 @@ function renderSelector(selector: TagSelector, bbox: BBox): string[] {
  * payload for polygons.
  */
 export function buildOverpassQL(options: BuildQueryOptions): string {
-  const {
-    bbox,
-    selectors,
-    output,
-    context,
-    serverTimeoutS = OVERPASS_SERVER_TIMEOUT_S,
-    resultCap = OVERPASS_RESULT_CAP,
-  } = options;
+  const { bbox, selectors, output, context } = options;
+  // Annotated on purpose. Phase 2.5 turned OVERPASS_SERVER_TIMEOUT_S into an
+  // object, and an unannotated destructuring default silently widened this to
+  // `number | {amenity, area}`: every query that relied on the default sent
+  // `[timeout:[object Object]]`, which Overpass rejects with HTTP 400. That
+  // broke the recon page and `fetchTile` outright. The safe default is the
+  // longer, polygon-group timeout.
+  const serverTimeoutS: number = options.serverTimeoutS ?? OVERPASS_SERVER_TIMEOUT_S.area;
+  const resultCap: number = options.resultCap ?? OVERPASS_RESULT_CAP;
+  if (!Number.isInteger(serverTimeoutS) || serverTimeoutS <= 0) {
+    throw new Error(`buildOverpassQL: invalid server timeout ${String(serverTimeoutS)}`);
+  }
 
   if (selectors.length === 0) {
     throw new Error('buildOverpassQL: at least one selector is required');

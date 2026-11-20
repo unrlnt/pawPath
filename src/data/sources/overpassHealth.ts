@@ -1,6 +1,7 @@
 /**
- * Per-instance health: circuit breaker, 406 demotion, and cached `/api/status`
- * readings.
+ * Per-instance health: circuit breaker and cached `/api/status` readings.
+ * (There is no 406 demotion: a 406 is our own request shape, see
+ * `classifyHttp` in overpassClient.ts.)
  *
  * Session-scoped and deliberately in-memory. A reload starts clean, which is
  * what you want after closing a laptop lid for an hour.

@@ -53,6 +53,7 @@ export class ProxyTileSource implements TileSource {
     return {
       features: [],
       loadedTileIds: [],
+      failedLayers: request.layers,
       error: single.ok ? undefined : single.error,
       meta: single.meta,
     };

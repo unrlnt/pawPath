@@ -15,6 +15,10 @@ describe('buildOverpassQL', () => {
     });
 
     expect(ql).toContain('[out:json][timeout:');
+    // Regression: the default once rendered as `[timeout:[object Object]]`,
+    // which Overpass answers with 400. Every query must carry a plain integer.
+    expect(ql).toMatch(/\[out:json\]\[timeout:\d+\];/);
+    expect(ql).not.toContain('object');
     expect(ql).toContain('node["amenity"="bench"](52.330000,5.240000,52.370000,5.290000);');
     expect(ql).toContain('way["amenity"="bench"](52.330000,5.240000,52.370000,5.290000);');
     expect(ql.trimEnd().endsWith(';')).toBe(true);

@@ -51,6 +51,8 @@ class RecordingSource implements TileSource {
   readonly batchRequests: TilesRequest[] = [];
   result: TileFetchResult | undefined;
   batchError: TileSourceError | undefined;
+  /** Layers whose group "fails" while the rest of the batch succeeds. */
+  failLayers: readonly Feature['layer'][] = [];
 
   constructor(private readonly features: readonly Feature[] = []) {}
 
@@ -82,7 +84,15 @@ class RecordingSource implements TileSource {
     return {
       features,
       loadedTileIds: this.batchError === undefined ? request.tileIds : [],
-      error: this.batchError,
+      failedLayers:
+        this.batchError === undefined
+          ? request.layers.filter((layer) => this.failLayers.includes(layer))
+          : request.layers,
+      error:
+        this.batchError ??
+        (this.failLayers.length > 0
+          ? new TileSourceError('timeout', 'polygon group timed out')
+          : undefined),
       meta: {
         durationMs: 1,
         endpoint: 'https://example.test',
@@ -336,6 +346,27 @@ describe('batched fetching', () => {
 
     expect(result.error?.kind).toBe('network');
     expect(result.features.length).toBeGreaterThan(0);
+  });
+
+  it('never caches a failed layer as empty when the rest of the batch succeeded', async () => {
+    const inner = new RecordingSource([feature('1', 'benches')]);
+    inner.failLayers = ['shade'];
+    const cached = new CachedTileSource(inner);
+    const firstTile = tileIds[0];
+    if (firstTile === undefined) return;
+
+    const result = await cached.fetchTiles({ tileIds: [firstTile], layers: ['benches', 'shade'] });
+
+    expect(result.failedLayers).toEqual(['shade']);
+    expect(store.has(`v1|${firstTile}|benches`)).toBe(true);
+    // Storing [] here would read as "no shade in this tile" for 30 days.
+    expect(store.has(`v1|${firstTile}|shade`)).toBe(false);
+
+    // And the next request asks again for shade only.
+    inner.failLayers = [];
+    inner.batchRequests.length = 0;
+    await cached.fetchTiles({ tileIds: [firstTile], layers: ['benches', 'shade'] });
+    expect(inner.batchRequests[0]?.layers).toEqual(['shade']);
   });
 });
 

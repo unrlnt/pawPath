@@ -191,5 +191,7 @@ describe('406 handling', () => {
     // a 406 says nothing about the instance's health.
     const { allInstanceHealth, isParked } = await import('./overpassHealth');
     expect(allInstanceHealth().some((instance) => isParked(instance))).toBe(false);
+    // Not even counted: three 406s in a row must not park a healthy instance.
+    expect(allInstanceHealth().every((instance) => instance.totalFailures === 0)).toBe(true);
   });
 });
