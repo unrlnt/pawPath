@@ -9,14 +9,14 @@ anything.
 
 ## Status
 
-Phases 1, 1.6 and 2 are done: the map shell is up, with the tile grid, the
-IndexedDB cache and the Overpass retry policy behind it. Features render as
-uniform dots — symbols and filters are Phase 4.
+The map shell (Phase 2) runs on live Overpass queries. On 2026-11-20 the
+project switched to **build-time vector tiles** served as static files
+(CLAUDE.md §3); Phase 2R rebuilds the data path. See `docs/audit-2026-11-20.md`.
 
 ## Running
 
 ```bash
-cp .env.example .env.local   # add a free MapTiler key, or the map won't render
+# No configuration needed: the basemap defaults to OpenFreeMap (no key).
 npm install
 npm run dev        # http://localhost:5173
 npm run typecheck  # tsc --noEmit, strict
@@ -24,7 +24,8 @@ npm test           # vitest, pure functions and the cache wrapper
 npm run build      # typecheck + static build into dist/
 ```
 
-`dist/` is a static bundle; Cloudflare Pages serves it as-is. There is no server.
+`dist/` is a static bundle served as-is by a static file server. Nothing runs
+per request.
 
 ## Diagnostics
 

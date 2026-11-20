@@ -21,221 +21,134 @@ degrade outside the Netherlands.
 
 ## 2. Non-negotiable constraints
 
-1. **€0 running cost.** Cloudflare free tier only. No paid Workers plan, no paid
-   database, no paid tile provider. Any design that requires a paid tier is wrong.
+1. **No marginal running cost.** The app runs on the owner's existing server
+   with Cloudflare's free proxy in front. No paid tiers, no paid tile or data
+   provider, no per-request compute that grows with traffic. Any design that
+   needs a paid plan to serve more users is wrong.
 2. **No login, no registration, no accounts.** All user state in `localStorage`.
 3. **Equal quality worldwide.** No feature may depend on a Netherlands-only data
    source unless there is a globally available fallback that is used by default.
-   Country-specific sources are enrichment only.
-4. **Minimal server load.** The owner's VPS must not be in the request path. It
-   runs only an n8n cron/webhook for water-warning scraping (Phase 6).
+   Country-specific sources are enrichment only. The data tiles are built from
+   the whole planet, not a regional extract.
+4. **The server serves static files only.** Nothing runs per request. Allowed
+   on the server: a scheduled tile build, the n8n water-warning job (Phase 6),
+   and a static file server. A dynamic endpoint may be added only if it is
+   cacheable at the edge and has been discussed first.
 5. **Map is the landing view.** Not a list, not a dashboard. The map renders
    immediately and fills in progressively.
 6. **Show only what exists.** If there is no record for something, nothing is
    drawn. No "unknown" pins, no empty states per feature. The one exception is
    water (see §6).
+7. **The repository is public.** Nothing secret and nothing personal is ever
+   committed — no keys, no `.env*` except `.env.example`, no real names or
+   personal email addresses (commit metadata included). The app needs no API
+   keys (§5); anything with a `VITE_` prefix ships to every browser and is
+   public by definition.
 
 ## 3. Architecture decision
 
-**Static frontend, client-side data fetching, no backend until Phase 6.**
-
-The browser queries Overpass and Open-Meteo directly. Nothing is proxied.
-
-Rationale:
-- Cloudflare free Workers allow 10 ms CPU per invocation. Parsing multi-MB
-  Overpass responses exceeds that by orders of magnitude. Server-side extraction
-  would require the paid plan (ruled out) or the VPS (ruled out).
-- Overpass rate limits are per client IP (~2 concurrent slots). Client-side
-  queries spread load across all users' IPs instead of funnelling everything
-  through one server IP.
-- No seeding step means no NL-vs-elsewhere quality gap.
-
-**Critical: the data layer must be swappable.** All remote fetching goes through
-`src/data/sources/` behind a single interface. A future `WorkerTileSource` must
-be droppable in place of `OverpassTileSource` without touching UI code. This is
-the migration path if traffic ever justifies a shared server-side cache.
+**Decided 2026-11-20: build-time vector tiles, served as static files.**
+Supersedes the client-side Overpass design (archived verbatim in
+`docs/history/overpass-era-spec.md`; reasons in §12).
 
 ```
-Browser (Cloudflare Pages, static)
-  ├── MapLibre GL JS            viewport → tile grid
-  ├── OverpassTileSource        OSM features, CORS, direct
-  ├── OpenMeteoSource           conditions, direct
-  ├── IndexedDB                 tile cache, long TTL
-  └── localStorage              filter prefs, favourites
-        │
-        └── (Phase 6 only) Cloudflare Worker + D1 → water warnings
+Weekly build (owner's server, or any build box)
+  planet-latest.osm.pbf
+    └─ osmium tags-filter  → only the tags in the layer table (§6)
+       └─ Planetiler, custom profile → pawpath.pmtiles   (z0–14, overzoomed above)
+
+Owner's server  (Caddy or nginx, static)        Cloudflare free proxy in front
+  /              the SPA (Vite build)
+  /tiles/        pawpath.pmtiles  (or z/x/y via `pmtiles serve`, edge-cached)
+  /data/         water-warnings.json (Phase 6, written by n8n)
+
+Browser
+  ├── MapLibre GL JS     basemap (OpenFreeMap) + pawpath vector source
+  ├── OpenMeteoSource    conditions, direct, cached 1 h in localStorage
+  └── localStorage       filter prefs, favourites, last location
 ```
 
-### Known trade-offs of the client-side approach
+Why:
+- Everything drawn from OSM is static over weeks. Querying it live from a
+  volunteer service cost seconds and megabytes per area, failed in ways that
+  took two sessions to misdiagnose, and could not scale (§9 always said so).
+- Public Overpass does not reliably serve datacenter IPs (observed
+  2026-11-20), so proxying it through the owner's server was not an option.
+- Static tiles cost the server the same at 10 users or 100,000, and the edge
+  cache absorbs almost all of it.
+- The dog-specific rules (levels, `dog=yes`, surface → paw risk) move into the
+  tile-build profile unchanged in meaning. `src/data/sources/layers.ts`
+  remains the single definition; the profile is generated from it or kept
+  in lock-step by a test.
+
+**The data layer stays swappable.** UI code reads tile and style URLs from
+`config.ts` and feature properties from the vector source; it never knows
+where the tiles were built or hosted.
+
+### Known trade-offs
 
 Accepted deliberately; do not "fix" these without discussion:
-- No shared cache — every user pays the cold cost for the same area.
-- Mobile data usage of a few MB per new area.
-- JSON parsing cost on low-end phones.
-- Overpass availability is outside our control (mitigated by fallback instances).
-- No server-side enrichment or cross-user analytics.
+- Data is up to one build old (weekly). Irrelevant for benches and forests.
+- A planet build needs ~100 GB free disk for the input file. If the server
+  cannot spare it, build elsewhere and upload the `.pmtiles`.
+- Tags not in the profile are not in the tiles. Adding a layer means a rebuild.
 
 ## 4. Stack
 
-- Vite + React 18 + TypeScript
-- MapLibre GL JS (**not** Mapbox GL — licensing)
-- Tailwind CSS
-- `idb-keyval` for IndexedDB
-- Deployed to Cloudflare Pages (static build output)
-- Phase 6 only: Cloudflare Worker (Hono) + D1
+- Vite + React 18 + TypeScript, Tailwind CSS v3 — static SPA, no SSR.
+- MapLibre GL JS (**not** Mapbox GL — licensing) + the `pmtiles` protocol.
+- Tile build: `osmium-tool`, Planetiler (Java 21), the `pmtiles` CLI.
+- Hosting: Caddy or nginx on the owner's server, Cloudflare free proxy in
+  front. Phase 6 adds a static JSON file written by n8n — no Worker, no D1.
 
-No server framework, no SSR, no Next.js. This is a static SPA.
+### Basemap
 
-### Tiles
+**OpenFreeMap** (`https://tiles.openfreemap.org/styles/liberty`) by default:
+no key, no request limits, commercial use allowed, no SLA. Configured through
+`MAP_STYLE_URL` in `config.ts`; `VITE_MAP_STYLE_URL` overrides it, so MapTiler,
+Stadia or a self-hosted Protomaps/OpenMapTiles basemap is an env-var change.
+If OpenFreeMap ever becomes unreliable, self-host a basemap `.pmtiles` next to
+ours.
 
-Base map tiles must come from a provider whose free tier permits public apps.
 **Never point at OpenStreetMap's standard tile servers** (`tile.openstreetmap.org`) —
 their usage policy forbids it.
 
-**Decided in Phase 2: MapTiler free tier**, key in `VITE_MAPTILER_KEY`. The
-allowance is finite (free-tier map loads per month), so watch it before any
-public posting — see §12. Switching provider is an env-var change, not a code
-change: components read `MAP_STYLE_URL` and `MAP_ATTRIBUTION` from `config.ts`
-and know nothing about MapTiler. `VITE_MAP_STYLE_URL` overrides everything, so
-Stadia or Protomaps drop in directly. With no key configured the app says so
-plainly rather than falling back to OSM's tile servers.
-
 ## 5. Data sources
 
-| Data | Source | Coverage | Notes |
-|---|---|---|---|
-| OSM features | Overpass API | Global | Primary source for all map symbols |
-| Weather, UV, radiation, rain | Open-Meteo Forecast | Global | No key required |
-| Air quality | Open-Meteo Air Quality | Global | European AQI + PM2.5/PM10/O₃ |
-| Bathing water locations | EEA WISE | EU | Phase 6 |
-| Live algae warnings | zwemwater.nl (NL), Länder portals (DE) | Fragmented | Phase 6, via n8n |
-| Place search | Nominatim (public) | Global | Added in Phase 2, never recorded here. Its policy forbids client-side autocomplete — see §12 audit |
+**No API keys are needed anywhere.** Every source below is keyless.
 
-### Overpass instances and retry policy
+| Data | Source | Coverage | Limits / terms | Used for |
+|---|---|---|---|---|
+| OSM features | Own `pawpath.pmtiles`, built from the planet file | Global | ODbL; attribution mandatory | All map symbols and areas |
+| Basemap | OpenFreeMap | Global | No limits, no key, as-is | Background map |
+| Weather, UV, radiation, rain | Open-Meteo Forecast | Global (KNMI/DWD high-res models where available) | Free tier **non-commercial**, < 10,000 calls/day, 5,000/h, 600/min, CC BY 4.0 | Conditions, paw model, walk window |
+| Air quality, pollen | Open-Meteo Air Quality (CAMS) | Global AQ; pollen Europe only | Same as above | AQI card |
+| Place search | Photon (komoot public instance), later self-hosted | Global | Fair use, throttled when heavy, no SLA | Search box |
+| Bathing water locations | EEA bathing water data | EU | Open data | Phase 6, water "monitored" state |
+| Live algae warnings | zwemwater.nl (NL), Länder portals (DE) | Fragmented | Per source; verify before use | Phase 6, via n8n → static JSON |
 
-Instances live in `OVERPASS_INSTANCE_CONFIGS` (`src/config.ts`), tried in this
-order. Expand the list from the
-[OSM wiki instance table](https://wiki.openstreetmap.org/wiki/Overpass_API#Public_Overpass_API_instances);
-entries marked `candidate` are declared but excluded from rotation until the
-connectivity tester confirms planet coverage and CORS.
+Staying inside the limits:
+- **Tiles and basemap** have no per-request limits; the edge cache and browser
+  HTTP cache do the rest.
+- **Open-Meteo** is called from each visitor's own browser, so its per-IP
+  limits apply per visitor, not to us. Requests are rounded to a ~0.1° grid
+  and cached for `CONDITIONS_TTL_MS` (1 h) in `localStorage`: one visitor
+  costs a handful of calls per day. **Commercial use** (an enabled ad slot)
+  requires Open-Meteo's paid plan or self-hosting it — a Phase 7 blocker.
+- **Photon**: search runs on submit (or debounced, minimum 3 characters,
+  ≥ 1 s apart), never per keystroke. Self-host when traffic warrants.
+- **Nominatim is not used** for search: its policy forbids client-side
+  autocomplete.
 
-1. `https://overpass.kumi.systems/api/interpreter` — primary; its wiki entry
-   permits any purpose, and it has the largest public capacity.
-2. `https://overpass-api.de/api/interpreter` — the reference instance, at
-   **normal priority**. It was once demoted for "filtering programmatic
-   requests"; that was wrong (see "HTTP 406" below).
-3. `https://overpass.private.coffee/api/interpreter`
+### Overpass — development tool only
 
-**Retry before rotating.** Rotating on the first error was the Phase 1/2 bug:
-it burned every instance in seconds and gave up in 10–18 s having never really
-retried. The policy now is:
-
-- Retry 429, 500, 502, 503, 504, timeouts and pre-HTTP `fetch` rejections.
-- At least 3 attempts on the *same* instance before rotating; 5 attempts total.
-- Exponential backoff **with jitter** (~1 s, 2 s, 4 s, 8 s, capped at 30 s).
-  Jitter is required: without it every client retries in lockstep and rebuilds
-  the burst that caused the failure.
-- Never retry 400 (our own bad QL) or 406 (a policy refusal).
-- Per-instance circuit breaker: 3 consecutive failures parks an instance for
-  5 minutes, after which it is probed again. One success resets it.
-- **On 429, do not guess.** Overpass sends no `Retry-After` and its 429 body is
-  HTML. Fetch `/api/status` — plain text — and wait until it says a slot frees.
-
-### Request shape — CORS
-
-Every Overpass request MUST stay a "simple" CORS request, meaning no preflight:
-
-- **POST**, body `data=<urlencoded QL>`;
-- `Content-Type: application/x-www-form-urlencoded` — one of only three
-  safelisted values. **Never `application/json`**: that turns every request into
-  a preflighted one, and a failed `OPTIONS` preflight surfaces as a bare
-  `TypeError` with no status and no response, indistinguishable from the
-  servers being down. (Run 2's `TypeError`s were *not* this — the shape was
-  already correct then. And the reverse also holds: on 2026-11-20 a connection
-  reset by a network proxy showed up in Chrome as "blocked by CORS policy". A
-  CORS message in the console does not prove a CORS problem.)
-- `Accept: application/json, */*;q=0.8` (safelisted, see above);
-- no other headers, and never `User-Agent` — browsers forbid it.
-
-`src/data/sources/overpassRequestShape.test.ts` pins all of this, including an
-assertion that no header outside the CORS safelist is ever sent.
-
-### Batching
-
-One Overpass query covers a whole viewport's uncached tiles, per output group —
-not one request per tile. Nine tiles × two groups was up to eighteen serialised
-requests for a single pan. The tiles' bounding boxes are unioned into one
-rectangle; the response is split back into per-`(tile, layer)` cache entries
-client-side, so cache reuse on pan is exactly as it was.
-
-**Do not widen the area to "save requests".** A 20 km radius is ~1,250 km²,
-which at Run 1's measured densities (surface alone: 700–780 features/km²) is
-tens of megabytes: it blows the server-side timeout and fails *after* consuming
-a slot, which is worse for the instance than not asking. `MAX_TILES_PER_VIEWPORT`
-now bounds query **size**, not request **count** — that is why it stays.
-
-**Usage policy compliance:**
-
-- **Never run requests in parallel** from one client. Slots are shared across an
-  IP block, so parallelism crowds out other users. `OVERPASS_MAX_CONCURRENCY`
-  is pinned to 1; raising it is a violation, not a tuning knob.
-- **`User-Agent` cannot be set from a browser** — it is a forbidden header. The
-  app identifies itself in the query comment via `APP_CONTACT_URL`, and the
-  browser sends `Origin` and `Referer` automatically, which tell an operator the
-  app's domain.
-- **Session request budget** (`OVERPASS_SESSION_REQUEST_BUDGET`,
-  `OVERPASS_SESSION_BYTE_BUDGET`) sits well inside the policy's documented
-  safety margin of ~10,000 requests / ~1 GB per user per day. Requests stop when
-  spent rather than degrading quietly; usage is shown in the dev inspector.
-- Keep queries as narrow as the active filters allow.
-
-### HTTP 406 — resolved, and it was never bot filtering
-
-**In one line:** the 406 was `Accept`-header content negotiation. A browser
-address bar sends `Accept: text/html,…` and gets 406; `fetch()` and curl send a
-wildcard `Accept` and get 200. Verified from a real browser. Every Overpass
-request therefore sends an explicit `Accept: application/json, */*;q=0.8`
-(`OVERPASS_ACCEPT_HEADER`), and `overpass-api.de` is at normal priority.
-
-**The earlier conclusion in this file — that instances filter "programmatic
-requests" — was WRONG.** It came from a Node experiment whose `User-Agent`
-happened to be refused, and it cost `overpass-api.de` an unjustified demotion.
-Do not revive it.
-
-`fetch()` to `overpass-api.de` from a browser on localhost returns **200 with
-valid JSON**. 406 appears when a request advertises an `Accept` the server
-cannot satisfy — which is what a browser **address bar** sends
-(`Accept: text/html,…`). Overpass returns JSON and refuses that negotiation.
-`fetch` and curl both default to a wildcard `Accept` and get 200.
-
-Measured against `overpass-api.de`, 2026-09-07, same query, same endpoint:
-
-| Client | Accept | Result |
-|---|---|---|
-| browser `fetch`, localhost | wildcard | **200** |
-| browser address bar | `text/html,…` | **406** |
-| curl, default UA | `application/json` | 200 |
-| curl, default UA | `text/html,…` | 200 |
-| curl, browser UA string | any of the above | 406 |
-
-The last two rows are why `OVERPASS_ACCEPT_HEADER` is
-`application/json, */*;q=0.8` rather than a bare `application/json`: the
-discriminator is **not the same everywhere**. From a browser it is `Accept`;
-from the development machine it is the `User-Agent`, and `Accept` changes
-nothing. `.de` balances across backends whose configuration differs, so both
-observations are real and neither is the whole rule. The wildcard fallback makes
-the request robust to either, and to an instance that labels its JSON
-`application/osm3s+json`.
-
-Consequences, all implemented:
-- `overpass-api.de` is back at **normal priority**.
-- Every Overpass request sends an explicit `Accept` (CORS-safelisted, so no
-  preflight).
-- A 406 is **still never retried**, but it is now classified as a **client
-  bug**: it means our own request shape is wrong. It is logged with
-  `console.error`, fails fast without rotating — every instance would answer
-  identically — and does **not** mark the instance unhealthy. There is no
-  "instance refuses us" state any more.
+Overpass is no longer in the product. It may be used by hand or by the recon
+tooling to check what a tag looks like before adding it to the profile. The
+lessons that still apply if it is ever called from a browser again: POST
+`application/x-www-form-urlencoded` (never `application/json`, which forces a
+preflight), `Accept: application/json, */*;q=0.8` (a 406 means our `Accept`
+is wrong, not that we are blocked), one request at a time, jittered backoff.
+Full history: §12 and `docs/history/overpass-era-spec.md`.
 
 ## 6. Layers and level indicators
 
@@ -316,42 +229,26 @@ Date-and-temperature rules, no external data:
 
 All of these are advisory. Word them as such.
 
-## 8. Query strategy
+## 8. Tile strategy
 
-- Snap the viewport to a fixed **~2 km tile grid**; query whole tiles, never raw
-  bounding boxes.
-- **Cache one IndexedDB entry per `(tileId, layerKey)`, never per layer set.**
-  The key is `v{schemaVersion}|{tileId}|{layerKey}` (`tileCacheKey()` in
-  `src/data/sources/overpassTileSource.ts`). A layer set describes the filter
-  panel at one moment, not the data: keying by it means every toggle produces a
-  key never seen before, missing tiles already held and storing the same
-  features repeatedly. The schema version invalidates old entries when
-  normalisation, a level derivation or a layer's selectors change.
-  - A read partitions the request into cached layers and missing ones, and
-    fetches only what is missing.
-  - A response covering several layers is **split on write**, one entry per
-    layer, including layers that produced no features — an empty array is a
-    real answer, and omitting it makes empty tiles re-query forever.
-- **Minimum zoom z13** for amenity layers. Below that, show a "zoom in" hint
-  rather than querying. **Surface has its own floor of z16** (`LAYER_MIN_ZOOM`):
-  at 700–780 features/km² it is an order of magnitude denser than every other
-  layer and must not load at the same zoom as benches.
-- **Cap total wall time per user action**, not per request
-  (`USER_ACTION_LATENCY_BUDGET_MS`, 50 s). Past the cap the UI stops blocking
-  and shows what has arrived; the retries continue in the **background** and
-  paint tiles as they land. Cancelling at the cap would just be the old
-  give-up-early bug again; blocking past it is indistinguishable from a crash
-  on a phone.
-- **Timeouts are split by output group** (`OVERPASS_TIMEOUT_MS`): amenity
-  queries answer in 1–3 s when healthy, so they get 12 s; polygon queries
-  legitimately take tens of seconds and get 45 s. Sharing one budget means
-  every failed amenity query costs 45 s of the user's attention.
-- **Debounce ~500 ms** after the map settles before issuing queries.
-- **Query only enabled filters.** The user picks active layers; disabled layers
-  are never requested. Default on first visit: a lightweight subset (shade,
-  off-leash, water) — not everything.
-- **Progressive render.** Amenity nodes first (fast), area polygons after (slow).
-- Cache TTL: 30 days for OSM tiles, 1 hour for conditions.
+- **One vector source, one source-layer per `LayerKey`.** Feature properties
+  carry the derived `level` and the tags popups need — never the full tag set.
+- **Zoom.** Tiles are built to z14 and overzoomed by MapLibre above that.
+  Amenity layers appear from z13; surface from z15 (it is an order of
+  magnitude denser than anything else — 700–780 features/km² measured).
+  Per-layer minimum zooms live in the build profile and are mirrored in
+  `config.ts` so the UI can say "zoom in to see …".
+- **Toggling a layer is a visibility change**, not a request. Default on first
+  visit: shade, off-leash, water.
+- **Polygons are complete**, multipolygon relations included — assembled at
+  build time.
+- **Paw-heat recolouring** of surfaces is a MapLibre style expression driven
+  by the current paw estimate, not a re-fetch.
+- **Caching** is HTTP caching: long `Cache-Control` on tiles, versioned file
+  name per build (`pawpath-YYYYMMDD.pmtiles`) so a new build never mixes with
+  old cached tiles. Conditions: 1 h in `localStorage`.
+- **Coverage stats** replace the recon page: a script reports features per km²
+  per layer for any bbox, read from the built tiles.
 
 ## 9. Monetisation
 
@@ -360,10 +257,10 @@ with a feature flag so it can be enabled, swapped or removed without touching
 layout code. Reserve the space in the layout so enabling it causes no shift.
 
 Caveats to keep in mind, recorded so they are not rediscovered later:
-- Overpass public instances are volunteer-funded infrastructure. Heavy
-  ad-monetised traffic against them is poor form and risks being blocked. If the
-  app becomes popular, move to a self-hosted or paid Overpass tier — or to the
-  `WorkerTileSource` path — before scaling ad revenue.
+- **Open-Meteo's free API is non-commercial.** An enabled ad slot makes the app
+  commercial: switch to their paid plan or self-host Open-Meteo first.
+- **ESA WorldCover** (a candidate shade source, §12) is CC BY 4.0 but asks for
+  prior approval for use in commercial advertising.
 - Ad networks in the EU require a consent banner, which conflicts with the
   "dead simple, no friction" goal. Prefer a non-tracking ad provider that does
   not require consent, or a plain donation link.
@@ -408,28 +305,22 @@ The home page also links to it in dev builds. It is gated on
 `import.meta.env.DEV`, so in a production build both URLs render a
 "not available" notice instead.
 
-### Phase 2 — Map shell
-MapLibre map, geolocation, tile provider decision, tile grid, IndexedDB cache
-layer, zoom gating, debounce, attribution footer, disclaimer.
+### Phase 2 — Map shell *(built on Overpass; superseded by 2R)*
+MapLibre map, geolocation, tile grid, IndexedDB cache, zoom gating, debounce,
+attribution, disclaimer. Its Overpass data path is replaced by Phase 2R; the
+map, geolocation, disclaimer, attribution and ad slot carry over.
 
-**Proxy-ready seam (built as a stub; the proxy is NOT built).**
-`ProxyTileSource` implements `TileSource`, is switched by
-`VITE_OVERPASS_PROXY_ENABLED`, and defaults off. It forwards the same generated
-Overpass QL to a configurable endpoint and parses the response client-side —
-there is no server-side extraction, because the Cloudflare free tier's 10 ms CPU
-limit rules it out (§3).
-
-A Cloudflare Worker pass-through proxy is the **preferred pre-launch
-configuration**, for two reasons a browser cannot achieve on its own:
-- it can set a proper `User-Agent`, which is how instance operators identify and
-  contact a client — a browser forbids the header entirely;
-- an edge cache collapses duplicate requests, so far less traffic reaches
-  Overpass than every client querying directly.
-
-**Open question, unresolved:** a proxy concentrates all users behind a small set
-of Cloudflare IPs, and the usage policy's language on cloud workers disfavours
-exactly that. Resolve by asking the instance operator before launch.
-Client-direct remains the default and the fallback.
+### Phase 2R — Tile pipeline and map rebuild
+- Planetiler profile generated from (or tested against) `layers.ts`; build
+  script `osmium tags-filter` → Planetiler → `pawpath-YYYYMMDD.pmtiles`.
+- Verified first on a small extract (Flevoland), then NL+DE, then planet.
+- MapLibre reads the `.pmtiles` via the `pmtiles` protocol; basemap OpenFreeMap.
+- Layer toggles (visibility only) and the "zoom in to see" hint.
+- Place search moved to Photon, never per keystroke.
+- Delete the Overpass runtime path, the IndexedDB cache, the tile grid and the
+  proxy seam; replace the recon page with a coverage-stats script.
+- Deployment notes for Caddy + Cloudflare, with long-lived cache headers.
+- **Done when** features render around Almere at z14 from our own tiles.
 
 ### Phase 3 — Conditions engine
 Open-Meteo integration, paw temperature model, walk window, rain window, air
@@ -443,28 +334,25 @@ popups, progressive rendering.
 Shade polygons, surface rendering with live paw-heat recolouring, off-leash areas.
 
 ### Phase 6 — Water warnings
-Cloudflare Worker + D1, EEA bathing water locations, n8n webhook trigger for
-on-demand refresh, three-state water rendering.
+EEA bathing water locations baked into the tiles at build time; n8n on the
+owner's server scrapes live warnings and writes `water-warnings.json` as a
+static file. Three-state water rendering. No Worker, no database.
 
 ### Phase 7 — Public launch
-Ad slot component, rate limiting, error and offline states, performance pass,
-share links, favourites, Cloudflare Pages deployment.
+Ad slot component, error and offline states, performance pass, share links,
+favourites, deployment.
 
 **Launch checklist — all blocking:**
 
-1. **Set `APP_CONTACT_URL`** in `src/config.ts` to a real, reachable public URL.
-   Until it is, every Overpass query tells instance operators the contact is
-   unset — honest, but it leaves them no way to reach us before blocking us.
-2. **Email the primary instance operator before any public posting.** Describe
-   the app, the expected request volume per user and in total, the caching and
-   retry policy, and explicitly note the `User-Agent` limitation: browsers
-   forbid the header, so the app identifies itself in the query comment and via
-   `Origin`/`Referer`. Ask whether they would prefer a proxied deployment (see
-   Phase 2's proxy seam) or client-direct traffic. Their answer decides the
-   open question above; record it here.
-3. **Check the MapTiler free-tier allowance** against expected traffic (§4).
-4. **Confirm the instance order** in `OVERPASS_INSTANCE_CONFIGS` with the
-   connectivity tester from a real browser (§5).
+1. **Repository hygiene before it goes public** (§2.7): run a secret scan over
+   the full history, and rewrite the author metadata of any commit carrying a
+   personal email (the 2026-11-20 audit found one: the `init` commit). Enable
+   GitHub's "keep my email private" and secret-scanning push protection.
+2. **Set `APP_CONTACT_URL`** in `src/config.ts` to the public repository URL.
+3. **Commercial status of Open-Meteo** (§9): if the ad slot is enabled, the
+   paid plan or a self-hosted instance must be in place first.
+4. **Attribution** for every source present: OSM (ODbL), OpenFreeMap /
+   OpenMapTiles, Open-Meteo (CC BY 4.0), and any enrichment source.
 
 ### Phase 8 — Regional enrichment (post-launch)
 Official municipal/national sources added **on top of** OSM via build-time
@@ -477,8 +365,8 @@ primary users walk. Enrichment appends to a layer rather than replacing it.
 Constraints that keep this compatible with §2:
 - **Additive only.** A region with no official source shows OSM data and is not
   degraded. No feature may depend on a regional source being present.
-- **Build-time static files**, served from Pages alongside the bundle. No
-  runtime fetching of third-party portals, no server in the request path.
+- **Build-time only**: merged into the same tile build. No runtime fetching of
+  third-party portals.
 - **Attribution per source.** Each provider registers its licence string in
   `SOURCE_ATTRIBUTION`, and every source present in the rendered features is
   credited.
@@ -498,7 +386,9 @@ Constraints that keep this compatible with §2:
 - [x] Phase 1.6 — Post-Run-1 selector and politeness corrections
 - [~] Phase 2 — Map shell *(code complete, including the 2.5 corrections.
       **Not yet confirmed end to end:** features have never been seen on the
-      map. See "Phase 2 — verification status" below.)*
+      map. See "Phase 2 — verification status" below. Its data path is
+      superseded by Phase 2R.)*
+- [ ] Phase 2R — Tile pipeline and map rebuild *(decided 2026-11-20, next)*
 - [ ] Phase 3 — Conditions engine
 - [ ] Phase 4 — Symbol layers and filters
 - [ ] Phase 5 — Area layers
@@ -526,13 +416,59 @@ z14, default layers (shade, off-leash, water):
   datacenter egress — the same thing the Phase 2 sandbox saw, and not evidence
   about the instances from a home connection.
 
-**What still needs your browser** (≈2 minutes): `cp .env.example .env.local`,
+*Superseded by Phase 2R's done-criterion (features from our own tiles). The
+browser check below is still worth two minutes if you want to see the old
+pipeline work once, but it no longer gates anything.*
+
+**Optional browser check** (≈2 minutes): `cp .env.example .env.local`,
 add `VITE_MAPTILER_KEY` (or `VITE_MAP_STYLE_URL=https://tiles.openfreemap.org/styles/liberty`),
 `npm run dev`, open `http://localhost:5173`, search "Almere", zoom to 14. Blue
 dots should appear within seconds. Then `dev` → "test all instances". Record
 the result here before Phase 3 starts.
 
 ### Decisions log
+
+**Stack change — 2026-11-20 (owner approved)**
+
+- **Build-time vector tiles replace live Overpass.** Goal changed to "runs on
+  the owner's server, usable by anyone, without overloading it". Live Overpass
+  could not do that: volunteer capacity, per-IP slots, datacenter IPs refused,
+  seconds and megabytes per area. A weekly planet build into one `.pmtiles`
+  served statically behind Cloudflare costs the same at any traffic. §2, §3,
+  §4, §5, §8 rewritten; the old text is in `docs/history/overpass-era-spec.md`.
+- **Constraint §2.1 changed** from "Cloudflare free tier only" to "no marginal
+  cost", and **§2.4** from "VPS not in the request path" to "server serves
+  static files only". Same intent, matched to the new hosting.
+- **New constraint §2.7: the repository is public.** Audit of the full history
+  (2 commits, all files): no keys, tokens or credentials; lockfile resolves
+  only to registry.npmjs.org. **One finding: the `init` commit's author and
+  committer carry a personal Gmail address.** Fixing it needs a history rewrite
+  and force-push — not done; owner to decide (launch checklist item 1).
+- **Basemap: OpenFreeMap replaces MapTiler as default.** No key, no limits,
+  commercial use allowed. MapTiler stays an env-var away. No key is needed
+  anywhere in the app.
+- **Phase 6 simplified**: n8n writes a static JSON; no Worker, no D1.
+- **Place search moves from Nominatim to Photon**; never per keystroke.
+
+**Sources review — 2026-11-20** (what is best per parameter; candidates are
+not decided, just recorded so they are not re-researched)
+
+| Parameter | Current | Verdict | Better / additional candidates |
+|---|---|---|---|
+| Shade | OSM wood/forest/scrub/tree_row | Good where mapped, uneven worldwide | **OSM `natural=tree`** (individual trees — dense in NL cities from municipal imports); **ESA WorldCover 10 m** tree class (global, CC BY 4.0, consistent everywhere; ad use needs ESA approval); later: building shadows by time of day from OSM building heights |
+| Off-leash | OSM `dog=*`, `dog_park` | Sparse everywhere, as expected | Municipal *losloopgebieden* open data (Phase 8) |
+| Surface | OSM `surface=*` on walkable ways | Best available | — (untagged ways stay undrawn, §2.6) |
+| Water bodies | OSM `natural=water` | Good; swimming_area/beach were 0 everywhere | Drop or keep the two empty selectors — decide from coverage stats |
+| Water monitoring / warnings | EEA + NL/DE portals (Phase 6) | Right sources | — |
+| Benches, bins, dispensers, drinking water | OSM | Only global source | NL drinking-water taps from water-company / municipal open data (Phase 8, unverified) |
+| Weather, UV, radiation | Open-Meteo | **Best fit**: global, keyless, has shortwave radiation the paw model needs, uses KNMI/DWD high-res models for NL/DE | — |
+| Short-range rain | Open-Meteo `minutely_15` | Model, not radar | Radar nowcast would be better for "rain in 30 min"; RainViewer's free API was cut back in 2025–26 (zoom limits, no forecast) — not recommended. Buienradar is Benelux-only enrichment; verify terms |
+| Air quality | Open-Meteo CAMS | Good globally | Luchtmeetnet (NL official measurements) as enrichment |
+| Pollen | — | Not planned | Open-Meteo CAMS pollen (Europe) — free addition if wanted |
+| Official weather warnings (heat, storm) | — | **Gap** | MeteoAlarm CAP feeds (EU national met services); licence terms to verify before use |
+| Daylight / darkness | — | **Gap** for the walk window | Computed locally (sun position), no API |
+| Winter paws (frost, snow, road salt) | — | **Gap** | Derived from Open-Meteo temperature + snowfall: "salt likely on paths" advisory |
+| Ticks, processionary caterpillar | Date/temperature rules | Fine as advisory | NL enrichment candidates exist; not researched |
 
 **Audit — 2026-11-20 (repo moved to GitHub; first cloud session)**
 

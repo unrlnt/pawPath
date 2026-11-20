@@ -442,6 +442,12 @@ export const WALKABLE_HIGHWAY_TYPES = [
 const MAPTILER_KEY = import.meta.env['VITE_MAPTILER_KEY'] ?? '';
 
 /**
+ * Default basemap (decided 2026-11-20, CLAUDE.md §4): OpenFreeMap needs no
+ * key and has no request limits, so the app works with no configuration.
+ */
+export const OPENFREEMAP_STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty';
+
+/**
  * Style URL for the basemap.
  *
  * NEVER point this at tile.openstreetmap.org — their tile usage policy forbids
@@ -453,7 +459,7 @@ const MAPTILER_KEY = import.meta.env['VITE_MAPTILER_KEY'] ?? '';
 export const MAP_STYLE_URL: string =
   import.meta.env['VITE_MAP_STYLE_URL'] ??
   (MAPTILER_KEY === ''
-    ? ''
+    ? OPENFREEMAP_STYLE_URL
     : `https://api.maptiler.com/maps/streets-v2/style.json?key=${MAPTILER_KEY}`);
 
 /** True when no basemap provider is configured; the app then runs map-less. */
@@ -461,7 +467,8 @@ export const MAP_STYLE_CONFIGURED = MAP_STYLE_URL !== '';
 
 /** Credit for the basemap provider. Displayed permanently — licence terms. */
 export const MAP_ATTRIBUTION: string =
-  import.meta.env['VITE_MAP_ATTRIBUTION'] ?? '© MapTiler';
+  import.meta.env['VITE_MAP_ATTRIBUTION'] ??
+  (MAPTILER_KEY === '' ? 'OpenFreeMap © OpenMapTiles' : '© MapTiler');
 
 export const MAP_DEFAULT_ZOOM = 15;
 export const MAP_MAX_ZOOM = 19;
