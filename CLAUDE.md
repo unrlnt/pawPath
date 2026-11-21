@@ -284,8 +284,8 @@ Caveats to keep in mind, recorded so they are not rediscovered later:
 
 ## 11. Phases
 
-Each phase is one Claude Code session. Do not start the next phase in the same
-session. At the end of a phase, update §12 Status.
+Phases are units of work, not sessions: several may run in one session. At
+the end of each phase, update §12 Status before starting the next.
 
 ### Phase 1 — Scaffold and Overpass reconnaissance
 Project setup, data-source abstraction, and a `/recon` page that runs Overpass
@@ -344,10 +344,13 @@ favourites, deployment.
 
 **Launch checklist — all blocking:**
 
-1. **Repository hygiene before it goes public** (§2.7): run a secret scan over
-   the full history, and rewrite the author metadata of any commit carrying a
-   personal email (the 2026-11-20 audit found one: the `init` commit). Enable
-   GitHub's "keep my email private" and secret-scanning push protection.
+1. **Repository hygiene before it goes public** (§2.7): re-run a secret and
+   personal-data scan over the full history (the 2026-11-21 rewrite fixed the
+   one finding so far). Enable GitHub's "keep my email private", "block
+   command line pushes that expose my email", and secret-scanning push
+   protection. Before flipping to public, consider recreating the repository
+   from a fresh push: GitHub can keep unreferenced old commits reachable by
+   SHA for a while after a force-push.
 2. **Set `APP_CONTACT_URL`** in `src/config.ts` to the public repository URL.
 3. **Commercial status of Open-Meteo** (§9): if the ad slot is enabled, the
    paid plan or a self-hosted instance must be in place first.
@@ -442,8 +445,11 @@ the result here before Phase 3 starts.
 - **New constraint §2.7: the repository is public.** Audit of the full history
   (2 commits, all files): no keys, tokens or credentials; lockfile resolves
   only to registry.npmjs.org. **One finding: the `init` commit's author and
-  committer carry a personal Gmail address.** Fixing it needs a history rewrite
-  and force-push — not done; owner to decide (launch checklist item 1).
+  committer carry a personal Gmail address.** *Fixed 2026-11-21 (owner
+  approved): history rewritten so `init` is authored by `unrlnt` with the
+  GitHub noreply address, and both branches force-pushed. Every SHA changed.*
+- **2026-11-21: the "one phase per session" rule is removed** (owner). Phases
+  are units of work; several may run in one session.
 - **Basemap: OpenFreeMap replaces MapTiler as default.** No key, no limits,
   commercial use allowed. MapTiler stays an env-var away. No key is needed
   anywhere in the app.
