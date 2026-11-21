@@ -108,17 +108,83 @@ export const PAW_ESTIMATE_SPREAD_C = 3;
 
 export const SEASONAL_RULES = {
   grassSeeds: { startMonth: 6, endMonth: 8 },
-  oakProcessionary: { startMonth: 4, endMonth: 7 },
+  oakProcessionary: {
+    startMonth: 4,
+    endMonth: 7,
+    /** Months when the stinging hairs are most abundant. */
+    peakMonths: [5, 6],
+    countries: ['NL', 'DE', 'BE'],
+  },
   breedingSeasonLeash: {
     start: { month: 3, day: 1 },
     end: { month: 7, day: 15 },
+    countries: ['NL'],
   },
   ticks: {
     /** Daily mean above this for `consecutiveDays` days activates the warning. */
     activationTempC: 7,
     consecutiveDays: 3,
+    /** Spring and autumn peaks. */
+    peakMonths: [4, 5, 6, 9, 10],
   },
+  /**
+   * Winter paws (added 2026-11-21, §12): frost and snow mean ice and road salt,
+   * both hard on pads. Derived from the forecast, no extra source.
+   */
+  winterPaws: { frostAtOrBelowC: 0, snowfallCm: 0.1 },
 } as const;
+
+/**
+ * Rough country boxes for the country-specific advisories above. Deliberately
+ * approximate (they overlap at borders): showing the oak-caterpillar note a
+ * few km into France is harmless, and it avoids a geocoding call.
+ */
+export const COUNTRY_BOXES: Readonly<Record<string, { south: number; west: number; north: number; east: number }>> = {
+  NL: { south: 50.75, west: 3.2, north: 53.7, east: 7.25 },
+  BE: { south: 49.5, west: 2.5, north: 51.5, east: 6.4 },
+  DE: { south: 47.25, west: 5.85, north: 55.1, east: 15.05 },
+};
+
+/* ------------------------------------------------------------------ *
+ * Conditions scoring  (CLAUDE.md §7)
+ * ------------------------------------------------------------------ */
+
+/** WHO UV index bands: low < 3, moderate < 6, high < 8, very high < 11, extreme. */
+export const UV_BANDS = { moderate: 3, high: 6, veryHigh: 8, extreme: 11 } as const;
+
+/** European AQI bands (EEA): good < 20, fair < 40, moderate < 60, poor < 80, very poor < 100. */
+export const AQI_BANDS = { fair: 20, moderate: 40, poor: 60, veryPoor: 80, extremelyPoor: 100 } as const;
+
+/** Precipitation probability (%) that makes an hour "ok" or "poor" for a walk. */
+export const RAIN_PROBABILITY = { ok: 30, poor: 60 } as const;
+
+/** A 15-minute slot with at least this much rain (mm) counts as wet. */
+export const RAIN_WET_MM_PER_15MIN = 0.1;
+
+/** How far ahead the short-range rain window looks. */
+export const RAIN_WINDOW_MINUTES = 120;
+
+/** How far ahead the walk window looks (CLAUDE.md §7: next 24 h). */
+export const WALK_WINDOW_HOURS = 24;
+
+/* ------------------------------------------------------------------ *
+ * Open-Meteo  (CLAUDE.md §5) — free tier is non-commercial
+ * ------------------------------------------------------------------ */
+
+export const OPEN_METEO_FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
+export const OPEN_METEO_AIR_URL = 'https://air-quality-api.open-meteo.com/v1/air-quality';
+
+/**
+ * Requests are snapped to this grid (degrees) so neighbours share a cache
+ * entry and a visitor panning around costs a handful of calls, not hundreds.
+ * 0.1° ≈ 11 km — finer than the weather models' own resolution matters for.
+ */
+export const CONDITIONS_GRID_DEG = 0.1;
+
+/** Past days requested, for the tick rule's consecutive-day check. */
+export const CONDITIONS_PAST_DAYS = 3;
+
+export const CONDITIONS_TIMEOUT_MS = 10_000;
 
 /* ------------------------------------------------------------------ *
  * Layers
@@ -240,4 +306,7 @@ export const STORAGE_KEYS = {
   lastLocation: 'pawpath.lastLocation.v1',
   disclaimerAccepted: 'pawpath.disclaimer.v1',
   enabledLayers: 'pawpath.layers.v2',
+  conditionsCard: 'pawpath.conditionsCard.v1',
+  /** Prefix: one entry per grid cell, `${prefix}${lat},${lng}`. */
+  conditionsCachePrefix: 'pawpath.conditions.v1:',
 } as const;

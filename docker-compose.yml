@@ -1,0 +1,47 @@
+# PawPath for Coolify (Docker Compose build pack) or plain `docker compose up`.
+#
+#   web    serves the app on :80 — assign your domain to this service in Coolify
+#   tiles  builds the map data on start and rebuilds weekly, into the shared
+#          `tiles` volume. First planet build takes hours; NL+DE takes minutes
+#          (set TILE_REGIONS=nl-de for a fast first deploy).
+#
+# Disk: `tiles-work` needs ~50 GB free while a planet build runs (it is emptied
+# afterwards); `tiles` holds the finished .pmtiles (a few GB). See
+# docs/deployment.md.
+
+services:
+  web:
+    build:
+      context: .
+      target: web
+      args:
+        VITE_MAP_STYLE_URL: ${VITE_MAP_STYLE_URL:-}
+        VITE_PHOTON_URL: ${VITE_PHOTON_URL:-}
+    environment:
+      # Coolify: generates a URL for port 80 of this service. Harmless elsewhere.
+      - SERVICE_FQDN_WEB_80
+    volumes:
+      - tiles:/srv/tiles:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  tiles:
+    build:
+      context: .
+      target: tiles
+    environment:
+      TILE_REGIONS: ${TILE_REGIONS:-planet}
+      JAVA_XMX: ${JAVA_XMX:-4g}
+      REBUILD_AFTER_DAYS: ${REBUILD_AFTER_DAYS:-7}
+    volumes:
+      - tiles:/srv/tiles
+      - tiles-work:/work
+    restart: unless-stopped
+
+volumes:
+  tiles:
+  tiles-work:

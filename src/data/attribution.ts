@@ -16,4 +16,9 @@ export const SOURCE_ATTRIBUTION = {
     licence: 'ODbL 1.0',
     url: 'https://www.openstreetmap.org/copyright',
   },
+  openMeteo: {
+    label: 'Weather: Open-Meteo',
+    licence: 'CC BY 4.0',
+    url: 'https://open-meteo.com/',
+  },
 } as const satisfies Record<string, SourceAttribution>;

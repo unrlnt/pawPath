@@ -1,0 +1,11 @@
+.git
+node_modules
+dist
+data
+public/tiles
+.tiles-work
+*.osm.pbf
+*.pmtiles
+.env
+.env.*
+!.env.example

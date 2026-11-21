@@ -1,3 +1,4 @@
+# Geofabrik continent extracts. Overlaps at borders are removed by osmium merge.
 https://download.geofabrik.de/africa-latest.osm.pbf
 https://download.geofabrik.de/antarctica-latest.osm.pbf
 https://download.geofabrik.de/asia-latest.osm.pbf

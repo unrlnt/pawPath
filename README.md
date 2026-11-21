@@ -41,10 +41,12 @@ Changing a layer: edit `src/data/layers.ts`, add a case to
 `src/data/layerExamples.ts`, run `npm run tiles:schema`, rebuild the tiles.
 A test fails if the schema is stale.
 
-Deployment (server, cron, Caddy, Cloudflare): [docs/deployment.md](docs/deployment.md).
+Deployment: two containers via `docker-compose.yml` — made for Coolify, works
+with plain Docker. See [docs/deployment.md](docs/deployment.md).
 
 ## Attribution
 
 Map data © OpenStreetMap contributors, ODbL. Basemap © OpenFreeMap /
-OpenMapTiles. Place search by Photon. Attribution is a licence requirement and
+OpenMapTiles. Weather data by Open-Meteo.com (CC BY 4.0). Place search by
+Photon. Attribution is a licence requirement and
 stays visible on the map.

@@ -183,7 +183,12 @@ export default function MapView({
         // Licence requirement (CLAUDE.md §10). The basemap style credits its
         // provider, our vector source credits OSM; this adds only an explicit
         // override for a style that credits nothing.
-        ...(MAP_ATTRIBUTION === undefined ? {} : { customAttribution: MAP_ATTRIBUTION }),
+        // Open-Meteo is CC BY 4.0 and its data shows on the collapsed card too,
+        // so its credit lives here, always visible — not only inside the card.
+        customAttribution: [
+          '<a href="https://open-meteo.com/" target="_blank" rel="noopener">Weather: Open-Meteo</a>',
+          ...(MAP_ATTRIBUTION === undefined ? [] : [MAP_ATTRIBUTION]),
+        ],
       }),
       'bottom-right',
     );

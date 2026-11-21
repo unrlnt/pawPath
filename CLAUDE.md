@@ -57,10 +57,12 @@ Weekly build (owner's server, or any build box)
     └─ osmium tags-filter  → only the tags in the layer table (§6)
        └─ Planetiler, custom profile → pawpath.pmtiles   (z0–14, overzoomed above)
 
-Owner's server  (Caddy or nginx, static)        Cloudflare free proxy in front
-  /              the SPA (Vite build)
-  /tiles/        pawpath.pmtiles  (or z/x/y via `pmtiles serve`, edge-cached)
-  /data/         water-warnings.json (Phase 6, written by n8n)
+Owner's server — Coolify, docker-compose.yml     Cloudflare free proxy in front
+  web   (Caddy, static only)
+    /              the SPA (Vite build, baked into the image)
+    /tiles/        pawpath-YYYYMMDD.pmtiles + manifest.json  ← shared volume
+    /data/         water-warnings.json (Phase 6, written by n8n)
+  tiles (builder) rebuilds into the shared volume when > 7 days old
 
 Browser
   ├── MapLibre GL JS     basemap (OpenFreeMap) + pawpath vector source
@@ -100,8 +102,11 @@ Accepted deliberately; do not "fix" these without discussion:
 - Vite + React 18 + TypeScript, Tailwind CSS v3 — static SPA, no SSR.
 - MapLibre GL JS (**not** Mapbox GL — licensing) + the `pmtiles` protocol.
 - Tile build: `osmium-tool`, Planetiler (Java 21), the `pmtiles` CLI.
-- Hosting: Caddy or nginx on the owner's server, Cloudflare free proxy in
+- Hosting: **Docker via Coolify** on the owner's server, from this repository
+  (`docker-compose.yml`): a Caddy `web` container serving static files and a
+  `tiles` builder container, sharing one volume. Cloudflare free proxy in
   front. Phase 6 adds a static JSON file written by n8n — no Worker, no D1.
+  Details: `docs/deployment.md`.
 
 ### Basemap
 
@@ -221,6 +226,17 @@ Compute hour-by-hour for the next 24 h from UV, paw temperature and precipitatio
 probability; surface the next contiguous block scoring "good". Use Open-Meteo
 `minutely_15` precipitation for the short-range rain window where available.
 
+Implemented rules (`src/lib/conditions/`), recorded so they are not re-derived:
+- The hour is scored on **asphalt in full sun** — the common worst case on a walk.
+- **poor** if paw > 52 °C, rain ≥ 60 % or UV ≥ 8; **ok** if paw ≥ 45 °C, rain
+  ≥ 30 % or UV ≥ 6; otherwise **good**. The paw band uses the **high end** of
+  the estimate range.
+- **The 15-minute forecast beats the hourly probability**: when it says the
+  next 2 h stay dry, rain reasons are dropped for those hours — for the verdict
+  *and* the walk window, so the card never contradicts itself.
+- Verdict: the current hour's score, downgraded by air quality (EAQI ≥ 60 →
+  care, ≥ 80 → wait).
+
 ### Seasonal warnings
 
 Date-and-temperature rules, no external data:
@@ -228,8 +244,12 @@ Date-and-temperature rules, no external data:
 - Ticks: temperature above ~7 °C for several consecutive days, peak spring/autumn
 - Oak processionary caterpillar: roughly April–July, NL/DE/BE
 - Breeding-season leash obligation: 1 March – 15 July (NL nature areas)
+- Winter paws (added 2026-11-21): frost or snow in the next 12 h → ice and
+  road-salt advisory.
 
-All of these are advisory. Word them as such.
+All of these are advisory. Word them as such. Country-specific rules use rough
+country boxes (`COUNTRY_BOXES`), not geocoding; dates use the calendar at the
+location's time zone, not the browser's.
 
 ## 8. Tile strategy
 
@@ -414,7 +434,9 @@ Constraints that keep this compatible with §2:
 - [x] Phase 2R — Tile pipeline and map rebuild *(done 2026-11-21: verified
       on a Flevoland build — features render around Almere at z14 from our own
       tiles. NL+DE and planet builds still to run, on the owner's server.)*
-- [ ] Phase 3 — Conditions engine
+- [x] Phase 3 — Conditions engine *(done 2026-11-21: Open-Meteo forecast + air
+      quality, paw model, walk and rain windows, seasonal advisories,
+      collapsible card; verified in a headless browser at Almere with live data)*
 - [ ] Phase 4 — Symbol layers and filters
 - [ ] Phase 5 — Area layers
 - [ ] Phase 6 — Water warnings
@@ -448,7 +470,70 @@ Known gaps after 2R, all owned by later phases:
   test extract came from `download.openstreetmap.fr`. Not an issue on the
   owner's server.
 
+### Phase 3 — verification (2026-11-21)
+
+Headless Chromium, Almere, live Open-Meteo data, 16:32 local:
+collapsed card "Good to walk · UV 0 · paws 6–12 °C"; expanded shows the paw
+estimate (one line without sun), "Good now, until about tomorrow 17:00", "Dry
+for the next 2 hours", sunset 16:38, UV low, air good (EAQI 19), and the
+Open-Meteo credit. First load: 2 requests (forecast + air quality); reload: 0
+(1 h cache). The first run exposed three wording bugs — a midnight-spanning
+window without "tomorrow", three identical paw rows at dusk, and "rain
+possible" next to "dry for 2 h" — all fixed and pinned by tests.
+
+Known after Phase 3:
+- The walk window ignores darkness: "good now until tomorrow 17:00" runs
+  through the night. Sunset is shown; whether night should score lower is a
+  product decision, not taken.
+- The OpenFreeMap style logs three MapLibre warnings ("Expected value to be of
+  type number, but found null") — confirmed to occur with all PawPath layers
+  off, so they are upstream.
+
 ### Decisions log
+
+**Containers for Coolify (2026-11-21)**
+
+- **One Dockerfile, two targets**: `web` (Caddy 2.10, static, 89 MB) and
+  `tiles` (Temurin 21 JRE + osmium + Planetiler 0.10.2 pinned). Compose wires
+  them through a shared `tiles` volume; a `tiles-work` volume holds the ~50 GB
+  of temporary build space.
+- **The builder needs no Node.** The osmium filter is now generated *and
+  committed* (`tools/tiles/osmium-filters.txt`) next to the schema, with the
+  same staleness test. `build.sh` needs only Java, osmium and curl.
+- **No cron**: `builder-loop.sh` builds when the manifest is missing, older
+  than `REBUILD_AFTER_DAYS`, or built from a different `TILE_REGIONS`; a failed
+  build keeps the previous tiles (tested: three download retries, then
+  "build FAILED — keeping the previous tiles", old tiles still served).
+- **Atomic swaps**: the archive is written as a hidden `.partial` file and
+  renamed; the manifest likewise. Caddy hides dotfiles (`/tiles/.*` → 404).
+- **No compression on `/tiles/`**: tiles inside the archive are already gzip,
+  and compressing a range response breaks the pmtiles reader. Verified: 206
+  with `Content-Range`, no `Content-Encoding`, immutable cache header.
+- Tested end to end in Docker here: Flevoland built in the `tiles` container
+  into a volume, served by `web` (healthcheck, SPA fallback, manifest, ranges).
+  The sandbox needed its proxy CA injected into a test-only copy of the
+  Dockerfile; the real Dockerfile is unchanged and needs nothing on a normal
+  server.
+
+**Phase 3 — conditions engine (2026-11-21)**
+
+- **All logic is pure** in `src/lib/conditions/` (paw, bands, walk window, rain
+  window, seasonal, verdict, summary); the card only words and lays out
+  `summarise()`'s result. 32 tests, including the boundaries that matter
+  (45/52 °C, 15 July inclusive, tick days, local-date at the location).
+- **Open-Meteo, two requests**: forecast (hourly, 15-minute rain, daily means
+  and sun times, 3 past days for the tick rule) and air quality (European AQI).
+  Air quality failing never sinks the card. `timeformat=unixtime`; times are
+  shown in the location's IANA time zone.
+- **Cache**: 0.1° grid, 1 h in localStorage, entries older than a day pruned on
+  write; a failed refresh falls back to stale data rather than nothing.
+- **Pollen not added** (it was a "free addition if wanted"); dog heat stress
+  from air temperature is not modelled beyond the paw estimate — both are
+  candidates, not decisions.
+- **A TypeScript trap, again**: a union member typed `status: 'idle' |
+  'loading'` defeated narrowing and silently made `summary` `any` in the card.
+  Split into one member per status; worth remembering next to the
+  `[timeout:[object Object]]` bug.
 
 **Phase 2R — tile pipeline and map rebuild (2026-11-21)**
 

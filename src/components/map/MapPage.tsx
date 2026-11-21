@@ -14,6 +14,8 @@ import {
 import { isLayerKey, LAYER_KEYS, type LayerKey } from '../../data/layers';
 import { loadTilesManifest } from '../../data/sources/tilesManifest';
 import { isStoredLocation, readStored, writeStored } from '../../lib/storage';
+import ConditionsCard from '../conditions/ConditionsCard';
+import { useConditions } from '../conditions/useConditions';
 import {
   AdSlot,
   Banner,
@@ -48,6 +50,8 @@ export default function MapPage() {
   );
 
   const geolocation = useGeolocation();
+  // Conditions where the user is, or else where they are looking.
+  const conditions = useConditions(geolocation.position ?? viewport?.centre);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -124,6 +128,7 @@ export default function MapPage() {
               🐾 PawPath
             </span>
           </header>
+          <ConditionsCard state={conditions} />
           {searchOpen ? (
             <SearchBox
               near={viewport?.centre}

@@ -1,101 +1,101 @@
 # Deployment
 
-PawPath is three kinds of static file on one server, with Cloudflare's free
-proxy in front (CLAUDE.md §3):
+PawPath deploys as **two containers from one repository** (CLAUDE.md §3):
 
-| Path | What | Cache |
+| Service | Image target | Does |
 |---|---|---|
-| `/` | the SPA (`npm run build` → `dist/`) | `index.html` short, `/assets/*` immutable |
-| `/tiles/manifest.json` | names the current tile file | 5 minutes |
-| `/tiles/pawpath-YYYYMMDD.pmtiles` | our vector tiles | immutable (new name per build) |
+| `web` | `Dockerfile` → `web` | Caddy serving the app and `/tiles/` from a shared volume. Nothing per request. |
+| `tiles` | `Dockerfile` → `tiles` | Builds the map data from OpenStreetMap on first start, then rebuilds when it is older than 7 days. |
 
-Nothing runs per request. The only scheduled job is the weekly tile build.
+They share the `tiles` volume: `tiles` writes, `web` reads.
 
-## 1. Server prerequisites
+## Coolify (recommended)
+
+1. **New resource → Public/Private repository** → this repo, branch of your
+   choice. **Build pack: Docker Compose**, compose file `docker-compose.yml`.
+2. **Domain:** assign it to the `web` service, port **80**. Coolify's proxy
+   terminates TLS; Caddy inside listens on plain HTTP.
+3. **Environment variables** (all optional):
+
+   | Variable | Default | Meaning |
+   |---|---|---|
+   | `TILE_REGIONS` | `planet` | Which `tools/tiles/sources-<name>.txt` to build: `planet`, `nl-de`, `flevoland` |
+   | `JAVA_XMX` | `4g` | Planetiler heap; raise for the planet if the build reports memory pressure |
+   | `REBUILD_AFTER_DAYS` | `7` | Rebuild interval |
+   | `VITE_MAP_STYLE_URL` | OpenFreeMap | Build-time basemap override (public value) |
+   | `VITE_PHOTON_URL` | photon.komoot.io | Build-time search override, e.g. a self-hosted Photon |
+
+4. **Deploy.** `web` is up within a minute and shows the map with a friendly
+   "map data could not be loaded" note until the first tile build finishes.
+
+**Tip for the first deploy:** set `TILE_REGIONS=nl-de` (minutes, a few GB),
+check everything works, then switch to `planet` (hours). Changing
+`TILE_REGIONS` triggers a rebuild on the next check.
+
+### Disk and memory
+
+- `tiles-work` volume: **~50 GB free while a planet build runs**. Regions are
+  downloaded, filtered and deleted one at a time, so the peak is the largest
+  region (Europe) plus small filtered parts; the volume is emptied afterwards.
+- `tiles` volume: the finished `.pmtiles` (a few GB for the planet; measure on
+  the first build) plus the previous one for a week.
+- RAM: Planetiler works on the filtered data only; 4 GB heap is the starting
+  point.
+
+### Watching the builder
+
+Coolify → `tiles` service → Logs. A build logs `[tiles …] downloading`,
+`filtering`, `building`, `done`. A failed build logs
+`build FAILED — keeping the previous tiles` and retries at the next check
+(every 6 h); the site keeps serving the last good build meanwhile.
+
+## Plain Docker Compose
 
 ```bash
-sudo apt-get install -y openjdk-21-jre-headless osmium-tool caddy
-# Node 22+ for the build scripts:
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash - && sudo apt-get install -y nodejs
-sudo git clone https://github.com/unrlnt/dogwalkmap /opt/pawpath   # once public
-cd /opt/pawpath && npm ci
+TILE_REGIONS=nl-de docker compose up -d --build
+docker compose logs -f tiles
+# app on http://localhost (map data appears when the first build is done)
 ```
 
-## 2. Weekly tile build
+Publish port 80 of `web` (e.g. add `ports: ["80:80"]`) or put your own reverse
+proxy in front.
+
+## Cloudflare (free plan) in front
+
+- Proxy the DNS record (orange cloud), SSL **Full (strict)**.
+- Static assets are cached at the edge by default (`/assets/*` is marked
+  immutable by Caddy).
+- **Range requests on a large `.pmtiles`:** Cloudflare's free plan caches files
+  up to 512 MB only, so range requests on a bigger planet file pass through to
+  the server. Caddy serves those cheaply; start like this. If server load ever
+  matters, add a `pmtiles serve` container that exposes `/{z}/{x}/{y}.mvt`
+  (cacheable per tile with a Cache Rule for `/tiles/*`) and point the manifest
+  at it.
+
+## What the web server sends
+
+| Path | Cache-Control | Notes |
+|---|---|---|
+| `/assets/*` | 1 year, immutable | hashed file names |
+| `/`, `/index.html` | 5 minutes | |
+| `/tiles/pawpath-YYYYMMDD.pmtiles` | 1 year, immutable | new name per build; range requests; never re-compressed |
+| `/tiles/manifest.json` | 5 minutes | names the current build |
+| `/tiles/.*` | 404 | in-progress builds and markers are hidden |
+| `/healthz` | — | `ok`, used by the container health check |
+
+## Without Docker
+
+The build script needs only Java 21, `osmium-tool` and `curl`:
 
 ```bash
-# NL + DE first (≈ 5 GB download, minutes):
-WORK_DIR=/var/tmp/pawpath tools/tiles/build.sh /srv/pawpath/www/tiles $(cat tools/tiles/sources-nl-de.txt)
-
-# Whole planet, one region at a time:
-WORK_DIR=/var/tmp/pawpath JAVA_XMX=6g \
-  tools/tiles/build.sh /srv/pawpath/www/tiles $(cat tools/tiles/sources-planet.txt)
+tools/tiles/build.sh /srv/pawpath/tiles $(grep -v '^#' tools/tiles/sources-nl-de.txt)
+npm ci && npm run build   # → dist/, serve with deploy/Caddyfile (adjust paths)
 ```
-
-**Disk:** regions are downloaded, filtered and deleted one at a time, so the
-peak is the largest region (Europe, ~35 GB) plus the filtered parts and
-Planetiler's temp files — budget **~50 GB of temporary space**. Afterwards only
-the `.pmtiles` remains (size to be measured on the first planet build).
-`WORK_DIR` can point at any disk with room; it is emptied at the end.
-
-**RAM:** Planetiler on the filtered planet should fit in a few GB; raise
-`JAVA_XMX` if it reports memory pressure.
-
-Cron (Monday 03:17):
-
-```cron
-17 3 * * 1  cd /opt/pawpath && git pull -q && npm ci --silent && WORK_DIR=/var/tmp/pawpath JAVA_XMX=6g tools/tiles/build.sh /srv/pawpath/www/tiles $(cat tools/tiles/sources-planet.txt) >> /var/log/pawpath-tiles.log 2>&1
-```
-
-The script keeps the previous `.pmtiles` for a week, so a browser holding an
-older manifest still finds its file.
-
-## 3. The app
-
-```bash
-npm run build
-rsync -a --delete --exclude tiles/ dist/ /srv/pawpath/www/
-```
-
-(`--exclude tiles/` keeps a locally built dev tile set out of production.)
-
-## 4. Caddy
-
-```caddy
-pawpath.example.org {
-	root * /srv/pawpath/www
-	encode zstd gzip
-
-	@immutable path /assets/* /tiles/*.pmtiles
-	header @immutable Cache-Control "public, max-age=31536000, immutable"
-	header /tiles/manifest.json Cache-Control "public, max-age=300"
-	header /index.html Cache-Control "public, max-age=300"
-
-	try_files {path} /index.html
-	file_server
-}
-```
-
-Caddy answers HTTP range requests out of the box, which is all the browser's
-pmtiles reader needs.
-
-## 5. Cloudflare (free plan)
-
-- Proxy the DNS record (orange cloud) and set SSL to **Full (strict)**.
-- Static assets are cached at the edge by default.
-- **Range requests on a large `.pmtiles`:** Cloudflare's free plan only caches
-  files up to 512 MB, so range requests on a bigger planet file pass through to
-  the server. Caddy serves those cheaply (sendfile), so start like this. If the
-  server load ever matters, switch to `pmtiles serve` behind Caddy, which turns
-  the archive into individual `/{z}/{x}/{y}.mvt` tiles that Cloudflare caches
-  one by one (add a Cache Rule for `/tiles/*`), and point the manifest at that
-  URL.
 
 ## Verifying a build
 
 ```bash
-npm run tiles:coverage -- /srv/pawpath/www/tiles/pawpath-YYYYMMDD.pmtiles 52.3508 5.2647
+npm run tiles:coverage -- path/to/pawpath-YYYYMMDD.pmtiles 52.3508 5.2647
 ```
 
-prints features per layer and level around a point — paste the table into
-CLAUDE.md §12 when something changes.
+prints features per layer and level around a point.

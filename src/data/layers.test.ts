@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_DISABLED_LEVELS } from '../config';
-import { renderSchema } from '../../tools/tiles/generateSchema';
+import { renderOsmiumFilters, renderSchema } from '../../tools/tiles/generateSchema';
 import { LAYER_EXAMPLES } from './layerExamples';
 import {
   ALL_LAYERS,
@@ -82,5 +82,13 @@ describe('generated Planetiler schema', () => {
       'utf8',
     );
     expect(committed).toBe(renderSchema());
+  });
+
+  it('osmium filter is up to date with layers.ts', () => {
+    const committed = readFileSync(
+      fileURLToPath(new URL('../../tools/tiles/osmium-filters.txt', import.meta.url)),
+      'utf8',
+    );
+    expect(committed).toBe(renderOsmiumFilters());
   });
 });
