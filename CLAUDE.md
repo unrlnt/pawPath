@@ -89,8 +89,10 @@ where the tiles were built or hosted.
 
 Accepted deliberately; do not "fix" these without discussion:
 - Data is up to one build old (weekly). Irrelevant for benches and forests.
-- A planet build needs ~100 GB free disk for the input file. If the server
-  cannot spare it, build elsewhere and upload the `.pmtiles`.
+- A planet build needs **~50 GB of temporary disk**: `build.sh` downloads,
+  filters and deletes one region at a time, so the peak is the largest region
+  (Europe) plus small filtered parts. Only the `.pmtiles` stays afterwards.
+  If even that is too much, build elsewhere and upload the result.
 - Tags not in the profile are not in the tiles. Adding a layer means a rebuild.
 
 ## 4. Stack
@@ -280,6 +282,32 @@ Caveats to keep in mind, recorded so they are not rediscovered later:
   always visible on the map. This is a licence requirement, not a nicety.
 - A visible disclaimer: guidance only, not a safety guarantee.
 
+### Design direction (decided 2026-11-21)
+
+**Cute, artsy, playful — not childish.** For dogs and the people who walk them.
+
+- **Light theme only.** No dark mode.
+- **Palette:** warm and soft — cream paper background, sage green, terracotta,
+  sunny yellow, with a deep warm brown for text. Defined once as design tokens
+  (Tailwind theme + `src/styles/tokens.ts` for map styles), never as ad-hoc hex
+  values in components.
+- **Safety colours keep their meaning, softened in tone:** off-leash green,
+  leash amber, prohibited red, `dog=yes` neutral. They must stay distinguishable
+  for colour-blind users (pair colour with an icon or pattern) and readable in
+  sunlight.
+- **Basemap:** OpenFreeMap restyled toward muted, paper-like colours so our
+  symbols carry the colour.
+- **Mascot: a golden retriever, cartoon style.** Appears in loading, empty and
+  error states and the disclaimer — small, warm, never in the way of the map.
+  Original artwork only (inline SVG in the repo), no stock or third-party
+  characters.
+- **Icons:** rounded, slightly hand-drawn feel, consistent stroke.
+- **Type:** one friendly rounded face for headings (Fredoka), a highly legible
+  face for body text (Nunito), self-hosted via npm — no Google Fonts CDN.
+- **Copy** has a little personality ("Paws are fine — 31 °C on asphalt") but
+  safety messages stay plain and unambiguous.
+- Mobile-first rules in §10 still win: 44 px tap targets, high contrast.
+
 ---
 
 ## 11. Phases
@@ -293,17 +321,9 @@ queries for a given coordinate and reports feature counts per tag. Purpose:
 verify empirically that OSM coverage is good enough per layer in the
 Netherlands, Germany and one other country before building UI on top of it.
 
-**Reaching the recon page.** There is no router, but the page is
-URL-addressable and needs no code change to open. Run `npm run dev`, then:
-
-```
-http://localhost:5173/recon      # path form, via Vite's SPA fallback
-http://localhost:5173/#/recon    # hash form, equivalent; works on any host
-```
-
-The home page also links to it in dev builds. It is gated on
-`import.meta.env.DEV`, so in a production build both URLs render a
-"not available" notice instead.
+*The recon page was deleted in Phase 2R together with the Overpass path. Its
+job — features per km² per layer — is now `npm run tiles:coverage`, which
+reads the built tiles (see "Recon findings").*
 
 ### Phase 2 — Map shell *(built on Overpass; superseded by 2R)*
 MapLibre map, geolocation, tile grid, IndexedDB cache, zoom gating, debounce,
@@ -373,10 +393,10 @@ Constraints that keep this compatible with §2:
 - **Attribution per source.** Each provider registers its licence string in
   `SOURCE_ATTRIBUTION`, and every source present in the rendered features is
   credited.
-- The seam is already in place: `Feature.source` and `SOURCE_ATTRIBUTION` in
-  `src/data/sources/tileSource.ts`. That is a type-level seam only — there is
-  deliberately **no** source registry, discovery script or per-region fetching
-  until this phase.
+- The seam: a regional dataset becomes another `sources:` entry in the
+  generated Planetiler schema, its features land in the same source-layers,
+  and its licence goes into `SOURCE_ATTRIBUTION` (`src/data/attribution.ts`).
+  Nothing is built for this until the phase starts.
 
 ---
 
@@ -391,7 +411,9 @@ Constraints that keep this compatible with §2:
       **Not yet confirmed end to end:** features have never been seen on the
       map. See "Phase 2 — verification status" below. Its data path is
       superseded by Phase 2R.)*
-- [ ] Phase 2R — Tile pipeline and map rebuild *(decided 2026-11-20, next)*
+- [x] Phase 2R — Tile pipeline and map rebuild *(done 2026-11-21: verified
+      on a Flevoland build — features render around Almere at z14 from our own
+      tiles. NL+DE and planet builds still to run, on the owner's server.)*
 - [ ] Phase 3 — Conditions engine
 - [ ] Phase 4 — Symbol layers and filters
 - [ ] Phase 5 — Area layers
@@ -399,37 +421,69 @@ Constraints that keep this compatible with §2:
 - [ ] Phase 7 — Public launch
 - [ ] Phase 8 — Regional enrichment (post-launch)
 
-### Phase 2 — verification status (2026-11-20)
+### Phase 2R — verification (2026-11-21)
 
-Settled from a headless Chromium in a cloud sandbox, Almere 52.3508, 5.2647,
-z14, default layers (shade, off-leash, water):
+Headless Chromium, Almere 52.3508, 5.2647, our own Flevoland tiles
+(`pawpath-20261121.pmtiles`, 5.5 MB, OSM data of 2026-11-21, built in 8 s):
 
-- **Basemap renders.** Verified with OpenFreeMap via `VITE_MAP_STYLE_URL` (no
-  MapTiler key was available to the sandbox; the MapTiler path is the same
-  code with a different URL).
-- **The Overpass request is correct on the wire.** One batched POST for the 4
-  viewport tiles, `application/x-www-form-urlencoded`, `Accept:
-  application/json, */*;q=0.8`, no non-safelisted headers, `[timeout:40]`.
-- **Retry, rotation and status messages behave as designed**: 3 attempts on
-  kumi.systems, rotation to overpass-api.de, a readable final error.
-- **Features: NOT confirmed.** No Overpass instance answers from that cloud
-  even with the hosts allow-listed: `overpass-api.de` resets the TLS
-  handshake, kumi.systems and private.coffee accept and never respond. The
-  basemap host on the same proxy works, so this is upstream refusing
-  datacenter egress — the same thing the Phase 2 sandbox saw, and not evidence
-  about the instances from a home connection.
+| View | Rendered features | Requests |
+|---|---|---|
+| z14, default layers | 143 dense / 35 medium / 2 light shade, 12 dog parks | 5 range requests, no errors |
+| z14, all layers | the above + 7 benches; "zoom in to see path surface (level 15)" shown | 5 |
+| z16, Almere centre, all layers | 64 benches, 53 hot-surface paths, 1 drinking water | 2 |
 
-*Superseded by Phase 2R's done-criterion (features from our own tiles). The
-browser check below is still worth two minutes if you want to see the old
-pipeline work once, but it no longer gates anything.*
+Cross-checked against the raw data with `osmium` in the same 16 km² square:
+forest 545 ways + 11 relations, wood 18, tree rows 26, scrub 557, 80 bench
+nodes, 8 dog parks — consistent with the tiles. Run 1 had forest 537 and
+wood 20 (matching), but **scrub 11**; whether that was its slow, partial
+query or a mapping wave since August is unknown — the tiles reflect today.
 
-**Optional browser check** (≈2 minutes): `cp .env.example .env.local`,
-add `VITE_MAPTILER_KEY` (or `VITE_MAP_STYLE_URL=https://tiles.openfreemap.org/styles/liberty`),
-`npm run dev`, open `http://localhost:5173`, search "Almere", zoom to 14. Blue
-dots should appear within seconds. Then `dev` → "test all instances". Record
-the result here before Phase 3 starts.
+Known gaps after 2R, all owned by later phases:
+- **Water draws nothing yet** — correctly: unmonitored water is never drawn
+  (§6), and "monitored"/"warning" arrive in Phase 6. The toggle exists.
+- **Shade blends into the basemap's own forest green** at z14 — Phase 5 needs a
+  distinct treatment (pattern or hatch).
+- Symbols are plain level-coloured circles; icons are Phase 4.
+- Geofabrik (and Overpass) drop connections from the Claude cloud sandbox; the
+  test extract came from `download.openstreetmap.fr`. Not an issue on the
+  owner's server.
 
 ### Decisions log
+
+**Phase 2R — tile pipeline and map rebuild (2026-11-21)**
+
+- **`src/data/layers.ts` is declarative now.** Levels are ordered rules (first
+  match wins) instead of functions, which is exactly Planetiler's match
+  semantics. `tools/tiles/generateSchema.ts` generates the Planetiler schema
+  *and* the osmium pre-filter from it; nobody edits `pawpath.schema.yml`.
+- **One set of examples, two implementations.** `src/data/layerExamples.ts`
+  (33 cases, every `dog=*` rule included) runs in vitest against the TS
+  evaluator and in `planetiler verify` against the real build. Both pass. A
+  test fails if the committed schema is stale.
+- **Off-leash lines only on paths.** Planetiler treats a closed OSM way as both
+  a possible line and polygon; off-leash lines are restricted to `highway=*`
+  (e.g. `dog=no` on a footway) so park outlines are not drawn twice.
+- **Surface requires a scored value.** `surface=moon_dust` used to pass the
+  selector and fail later; now an unscored surface is not in the tiles (§2.6).
+- **`amenity~dog_waste.*` became `amenity=dog_waste*` (prefix).** The old regex
+  was unanchored; Planetiler's `%` wildcard is a prefix match. Same intent.
+- **Versioned tiles + manifest.** The build writes `pawpath-YYYYMMDD.pmtiles`
+  (immutable) and `manifest.json` (short cache); old files are kept a week.
+- **Deleted:** the Overpass client, retry/breaker/budget, request-shape tests,
+  IndexedDB cache, tile grid, proxy seam, recon page, dev panel, Nominatim
+  search, `idb-keyval`. The lessons survive in §5 and the history file.
+- **Photon replaces Nominatim**; search runs on submit only, ≥ 1 s apart,
+  biased (not filtered) to the current map centre.
+- **Design tokens** in `src/styles/tokens.ts` feed both Tailwind and the map
+  styles. Fonts self-hosted (Fredoka, Nunito). The golden-retriever mascot is
+  an original inline SVG (`src/components/Mascot.tsx`).
+- **Basemap recoloured client-side** (`warmBasemap`), by layer id/type, so an
+  upstream style change degrades to "less warm", not broken.
+  `VITE_MAP_RECOLOUR=false` turns it off for non-OpenMapTiles styles.
+- **Attribution deduplicated.** The basemap style credits its provider; our
+  vector source credits OSM. `VITE_MAP_ATTRIBUTION` is only for a style that
+  credits nothing itself. The control stays expanded (licence requirement).
+- **Dev-only `window.__pawpathMap`** for diagnostics and the headless check.
 
 **Stack change — 2026-11-20 (owner approved)**
 
@@ -800,9 +854,36 @@ Valid Run 1 signal worth keeping:
 - **Bogotá is the thin-coverage control** and behaved like one: shade present,
   everything else near zero.
 
-Run 2 still needs running for off-leash, waste and surface, plus a `dog=*`
-distribution tally per location. Open `/recon`, use the ▶ buttons one location at
-a time, and paste the summary below.
+**Run 2 is replaced by coverage stats from the tiles** (`npm run
+tiles:coverage -- FILE.pmtiles LAT LNG`). First result, Almere, Flevoland
+build of 2026-11-21 (density per area of the z14 tiles read):
+
+#### 52.3508, 5.2647 · r=2 km · 26.8 km² · z14 · 12 tiles
+Source: public/tiles/pawpath-20261121.pmtiles
+
+| Layer | Level | Features | Per km² |
+|---|---|---:|---:|
+| Shade | dense | 851 | 31.77 |
+| Shade | light | 68 | 2.54 |
+| Shade | medium | 1168 | 43.60 |
+| **Shade** | **total** | **2087** | **77.91** |
+| Off-leash & dog rules | leashed | 7 | 0.26 |
+| Off-leash & dog rules | off_leash_fenced | 8 | 0.30 |
+| **Off-leash & dog rules** | **total** | **15** | **0.56** |
+| Path surface | high | 1207 | 45.06 |
+| Path surface | low | 244 | 9.11 |
+| Path surface | mid | 186 | 6.94 |
+| **Path surface** | **total** | **1637** | **61.11** |
+| Water | candidate | 360 | 13.44 |
+| **Water** | **total** | **360** | **13.44** |
+| Benches | — | 155 | 5.79 |
+| **Benches** | **total** | **155** | **5.79** |
+| Bins & bag dispensers | general | 5 | 0.19 |
+| **Bins & bag dispensers** | **total** | **5** | **0.19** |
+| Drinking water | — | 3 | 0.11 |
+| **Drinking water** | **total** | **3** | **0.11** |
+
+Leipzig, Melbourne and Bogotá follow once the planet build runs.
 
 ---
 

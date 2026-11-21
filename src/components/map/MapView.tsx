@@ -1,16 +1,13 @@
 /**
- * The MapLibre canvas and nothing else.
+ * The MapLibre canvas: basemap + PawPath vector tiles + "you".
  *
- * Provider-agnostic on purpose: this component reads `MAP_STYLE_URL` and
- * `MAP_ATTRIBUTION` from config and knows nothing about MapTiler, Stadia or
- * Protomaps. Swapping provider is an env-var change (CLAUDE.md §4).
- *
- * Phase 2 renders every feature as the same plain dot. That is the point: it
- * proves the pipeline end to end. Symbols and level encoding are Phase 4.
+ * Provider-agnostic: reads MAP_STYLE_URL / MAP_ATTRIBUTION from config and the
+ * tile URL from the manifest; knows nothing about where either is hosted.
+ * Toggling a layer is a visibility change, never a request (CLAUDE.md §8).
  */
 
-import type { FeatureCollection, Point } from 'geojson';
 import maplibregl, { type GeoJSONSource, type Map as MapLibreMap } from 'maplibre-gl';
+import { Protocol } from 'pmtiles';
 import { useEffect, useRef } from 'react';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
@@ -18,62 +15,153 @@ import {
   MAP_ATTRIBUTION,
   MAP_MAX_ZOOM,
   MAP_MIN_ZOOM,
+  MAP_RECOLOUR_BASEMAP,
   MAP_STYLE_URL,
 } from '../../config';
-import { SOURCE_ATTRIBUTION, type Feature } from '../../data/sources';
-import type { Viewport } from './useTileFeatures';
+import { SOURCE_ATTRIBUTION } from '../../data/attribution';
+import { LEVEL_LABELS } from '../../data/levelLabels';
+import { LAYERS, isFeatureLevel, isLayerKey, type LayerKey } from '../../data/layers';
+import { PAWPATH_SOURCE_ID, pawpathLayerSpecs } from '../../map/pawpathLayers';
+import { warmBasemap } from '../../map/warmBasemap';
+import { palette } from '../../styles/tokens';
 
-const FEATURE_SOURCE_ID = 'pawpath-features';
-const FEATURE_LAYER_ID = 'pawpath-feature-dots';
+// One protocol handler for the page's lifetime; it caches archive headers.
+let protocolRegistered = false;
+function registerPmtiles(): void {
+  if (protocolRegistered) return;
+  const protocol = new Protocol();
+  maplibregl.addProtocol('pmtiles', protocol.tile);
+  protocolRegistered = true;
+}
+
 const USER_SOURCE_ID = 'pawpath-user';
-const USER_LAYER_ID = 'pawpath-user-dot';
+const { specs: PAWPATH_SPECS, idsByLayer: IDS_BY_LAYER } = pawpathLayerSpecs();
+const ALL_PAWPATH_IDS = PAWPATH_SPECS.map((spec) => spec.id);
+
+export interface Viewport {
+  readonly centre: { lat: number; lng: number };
+  readonly zoom: number;
+}
 
 export interface MapViewProps {
   readonly centre: { lat: number; lng: number };
   readonly zoom: number;
-  readonly features: readonly Feature[];
+  /** Absolute URL of the current .pmtiles file; undefined until the manifest loads. */
+  readonly tilesUrl: string | undefined;
+  readonly enabledLayers: readonly LayerKey[];
   readonly userPosition: { lat: number; lng: number } | undefined;
-  /** Fires after the map settles, already debounced downstream. */
   readonly onViewportChange: (viewport: Viewport) => void;
-  /** Fires on a long-press or right-click: the drop-a-pin gesture. */
   readonly onDropPin: (position: { lat: number; lng: number }) => void;
 }
 
-function toGeoJson(features: readonly Feature[]): FeatureCollection<Point> {
-  return {
-    type: 'FeatureCollection',
-    features: features.map((feature) => ({
-      type: 'Feature',
-      id: feature.id,
-      geometry: { type: 'Point', coordinates: [feature.lng, feature.lat] },
-      properties: { layer: feature.layer, level: feature.level ?? '', id: feature.id },
-    })),
-  };
+/** Popup body built from text nodes only — OSM names are untrusted input. */
+function popupContent(layer: LayerKey, properties: Record<string, unknown>): HTMLElement {
+  const root = document.createElement('div');
+  const title = document.createElement('div');
+  title.className = 'font-display text-base';
+  const level = properties['level'];
+  title.textContent =
+    typeof level === 'string' && isFeatureLevel(level) ? LEVEL_LABELS[level] : LAYERS[layer].label;
+  root.append(title);
+  const name = properties['name'];
+  if (typeof name === 'string' && name !== '') {
+    const line = document.createElement('div');
+    line.className = 'text-sm text-inkSoft';
+    line.textContent = name;
+    root.append(line);
+  }
+  return root;
 }
 
 export default function MapView({
   centre,
   zoom,
-  features,
+  tilesUrl,
+  enabledLayers,
   userPosition,
   onViewportChange,
   onDropPin,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
-  // Callbacks live in refs so re-renders never tear down the map.
-  const viewportChangeRef = useRef(onViewportChange);
-  const dropPinRef = useRef(onDropPin);
-  viewportChangeRef.current = onViewportChange;
-  dropPinRef.current = onDropPin;
+  const styleReady = useRef(false);
+  // Latest props for handlers registered once.
+  const latest = useRef({ tilesUrl, enabledLayers, userPosition, onViewportChange, onDropPin });
+  latest.current = { tilesUrl, enabledLayers, userPosition, onViewportChange, onDropPin };
+
+  /** Adds our source and layers if the style is ready and the URL known. Idempotent. */
+  const syncPawpath = (map: MapLibreMap): void => {
+    const url = latest.current.tilesUrl;
+    if (!styleReady.current || url === undefined) return;
+    if (map.getSource(PAWPATH_SOURCE_ID) === undefined) {
+      map.addSource(PAWPATH_SOURCE_ID, {
+        type: 'vector',
+        url: `pmtiles://${url}`,
+        attribution: `<a href="${SOURCE_ATTRIBUTION.osm.url}" target="_blank" rel="noopener">${SOURCE_ATTRIBUTION.osm.label}</a>`,
+      });
+      for (const spec of PAWPATH_SPECS) map.addLayer(spec);
+    }
+    const enabled = new Set(latest.current.enabledLayers);
+    for (const [key, ids] of Object.entries(IDS_BY_LAYER)) {
+      const visibility = isLayerKey(key) && enabled.has(key) ? 'visible' : 'none';
+      for (const id of ids) map.setLayoutProperty(id, 'visibility', visibility);
+    }
+  };
+
+  const syncUser = (map: MapLibreMap): void => {
+    if (!styleReady.current) return;
+    const position = latest.current.userPosition;
+    const data: GeoJSON.FeatureCollection = {
+      type: 'FeatureCollection',
+      features:
+        position === undefined
+          ? []
+          : [
+              {
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [position.lng, position.lat] },
+                properties: {},
+              },
+            ],
+    };
+    const source = map.getSource(USER_SOURCE_ID) as GeoJSONSource | undefined;
+    if (source !== undefined) {
+      source.setData(data);
+      return;
+    }
+    map.addSource(USER_SOURCE_ID, { type: 'geojson', data });
+    map.addLayer({
+      id: 'pawpath-user-halo',
+      type: 'circle',
+      source: USER_SOURCE_ID,
+      paint: { 'circle-radius': 16, 'circle-color': palette.terracotta, 'circle-opacity': 0.18 },
+    });
+    map.addLayer({
+      id: 'pawpath-user-dot',
+      type: 'circle',
+      source: USER_SOURCE_ID,
+      paint: {
+        'circle-radius': 7,
+        'circle-color': palette.terracotta,
+        'circle-stroke-width': 3,
+        'circle-stroke-color': palette.cream,
+      },
+    });
+  };
 
   useEffect(() => {
     const container = containerRef.current;
     if (container === null || mapRef.current !== null) return;
+    registerPmtiles();
 
     const map = new maplibregl.Map({
       container,
-      style: MAP_STYLE_URL,
+      // Placeholder until the real style loads, so the first paint is cream.
+      style: {
+        version: 8,
+        sources: {},
+        layers: [{ id: 'bg', type: 'background', paint: { 'background-color': palette.cream } }],
+      },
       center: [centre.lng, centre.lat],
       zoom,
       minZoom: MAP_MIN_ZOOM,
@@ -81,71 +169,54 @@ export default function MapView({
       attributionControl: false,
     });
     mapRef.current = map;
+    if (import.meta.env.DEV) {
+      // Dev-only handle for diagnostics and the headless verification script.
+      (window as unknown as { __pawpathMap?: MapLibreMap }).__pawpathMap = map;
+    }
+
+    map.setStyle(MAP_STYLE_URL, MAP_RECOLOUR_BASEMAP ? { transformStyle: warmBasemap } : {});
 
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
     map.addControl(
       new maplibregl.AttributionControl({
         compact: false,
-        // Licence requirement, not decoration: OSM and the tile provider are
-        // credited permanently (CLAUDE.md §10).
-        customAttribution: [SOURCE_ATTRIBUTION.osm.label, MAP_ATTRIBUTION],
+        // Licence requirement (CLAUDE.md §10). The basemap style credits its
+        // provider, our vector source credits OSM; this adds only an explicit
+        // override for a style that credits nothing.
+        ...(MAP_ATTRIBUTION === undefined ? {} : { customAttribution: MAP_ATTRIBUTION }),
       }),
       'bottom-right',
     );
 
-    const emitViewport = (): void => {
-      const bounds = map.getBounds();
-      const mapCentre = map.getCenter();
-      viewportChangeRef.current({
-        bbox: {
-          south: bounds.getSouth(),
-          west: bounds.getWest(),
-          north: bounds.getNorth(),
-          east: bounds.getEast(),
-        },
-        centre: { lat: mapCentre.lat, lng: mapCentre.lng },
-        zoom: map.getZoom(),
-      });
-    };
-
-    map.on('load', () => {
-      map.addSource(FEATURE_SOURCE_ID, { type: 'geojson', data: toGeoJson([]) });
-      map.addLayer({
-        id: FEATURE_LAYER_ID,
-        type: 'circle',
-        source: FEATURE_SOURCE_ID,
-        paint: {
-          // Uniform dots, deliberately. Phase 4 encodes layer and level.
-          'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 3, 18, 7],
-          'circle-color': '#1d4ed8',
-          'circle-stroke-width': 1.5,
-          'circle-stroke-color': '#ffffff',
-          'circle-opacity': 0.9,
-        },
-      });
-
-      map.addSource(USER_SOURCE_ID, { type: 'geojson', data: toGeoJson([]) });
-      map.addLayer({
-        id: USER_LAYER_ID,
-        type: 'circle',
-        source: USER_SOURCE_ID,
-        paint: {
-          'circle-radius': 7,
-          'circle-color': '#059669',
-          'circle-stroke-width': 3,
-          'circle-stroke-color': '#ffffff',
-        },
-      });
-
-      emitViewport();
+    map.on('style.load', () => {
+      // The placeholder style also fires this; only the real one counts.
+      if (map.getStyle().layers.some((layer) => layer.id === 'bg')) return;
+      styleReady.current = true;
+      syncPawpath(map);
+      syncUser(map);
     });
 
-    // `moveend` covers pan, zoom and rotate, and fires once the map settles —
-    // the debounce downstream then absorbs rapid successive settles.
+    const emitViewport = (): void => {
+      const c = map.getCenter();
+      latest.current.onViewportChange({ centre: { lat: c.lat, lng: c.lng }, zoom: map.getZoom() });
+    };
+    map.on('load', emitViewport);
     map.on('moveend', emitViewport);
 
+    map.on('click', (event) => {
+      if (!styleReady.current) return;
+      const layers = ALL_PAWPATH_IDS.filter((id) => map.getLayer(id) !== undefined);
+      const [hit] = map.queryRenderedFeatures(event.point, { layers });
+      const layer = hit?.sourceLayer;
+      if (hit === undefined || layer === undefined || !isLayerKey(layer)) return;
+      new maplibregl.Popup({ closeButton: false, maxWidth: '260px' })
+        .setLngLat(event.lngLat)
+        .setDOMContent(popupContent(layer, hit.properties))
+        .addTo(map);
+    });
+
     map.on('contextmenu', (event) => {
-      dropPinRef.current({ lat: event.lngLat.lat, lng: event.lngLat.lng });
+      latest.current.onDropPin({ lat: event.lngLat.lat, lng: event.lngLat.lng });
     });
 
     // Long-press equivalent for touch, where there is no right-click.
@@ -158,7 +229,7 @@ export default function MapView({
       clearLongPress();
       const { lngLat } = event;
       longPress = setTimeout(() => {
-        dropPinRef.current({ lat: lngLat.lat, lng: lngLat.lng });
+        latest.current.onDropPin({ lat: lngLat.lat, lng: lngLat.lng });
       }, 600);
     });
     map.on('touchend', clearLongPress);
@@ -169,54 +240,26 @@ export default function MapView({
       clearLongPress();
       map.remove();
       mapRef.current = null;
+      styleReady.current = false;
     };
-    // Mount once: centre and zoom are the initial camera only. Later changes
-    // are applied through the imperative effects below.
+    // Mount once: centre/zoom are the initial camera; later changes go below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Recentre when the caller moves the camera (geolocation, search, pin).
   useEffect(() => {
-    const map = mapRef.current;
-    if (map === null) return;
-    map.easeTo({ center: [centre.lng, centre.lat], zoom, duration: 600 });
+    mapRef.current?.easeTo({ center: [centre.lng, centre.lat], zoom, duration: 600 });
   }, [centre.lat, centre.lng, zoom]);
 
   useEffect(() => {
     const map = mapRef.current;
-    if (map === null) return;
-    const apply = (): void => {
-      const source = map.getSource(FEATURE_SOURCE_ID) as GeoJSONSource | undefined;
-      source?.setData(toGeoJson(features));
-    };
-    if (map.isStyleLoaded()) apply();
-    else map.once('load', apply);
-  }, [features]);
+    if (map !== null) syncPawpath(map);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tilesUrl, enabledLayers]);
 
   useEffect(() => {
     const map = mapRef.current;
-    if (map === null) return;
-    const apply = (): void => {
-      const source = map.getSource(USER_SOURCE_ID) as GeoJSONSource | undefined;
-      source?.setData({
-        type: 'FeatureCollection',
-        features:
-          userPosition === undefined
-            ? []
-            : [
-                {
-                  type: 'Feature',
-                  geometry: {
-                    type: 'Point',
-                    coordinates: [userPosition.lng, userPosition.lat],
-                  },
-                  properties: {},
-                },
-              ],
-      });
-    };
-    if (map.isStyleLoaded()) apply();
-    else map.once('load', apply);
+    if (map !== null) syncUser(map);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userPosition]);
 
   return <div ref={containerRef} className="h-full w-full" data-testid="map-canvas" />;

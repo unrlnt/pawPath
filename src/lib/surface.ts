@@ -61,3 +61,16 @@ export function pawRiskForSurfaceKind(kind: PawSurfaceKind): 'high' | 'mid' | 'l
   if (k >= PAW_K_VALUES.gravel) return 'mid';
   return 'low';
 }
+
+/**
+ * Every scored OSM surface value, grouped by paw-heat risk. Derived from the
+ * alias table and the k values above, so retuning k regroups the tile build.
+ */
+export const SURFACE_VALUES_BY_RISK: Readonly<Record<'high' | 'mid' | 'low', readonly string[]>> =
+  (() => {
+    const groups: Record<'high' | 'mid' | 'low', string[]> = { high: [], mid: [], low: [] };
+    for (const [value, kind] of Object.entries(SURFACE_ALIASES)) {
+      groups[pawRiskForSurfaceKind(kind)].push(value);
+    }
+    return groups;
+  })();

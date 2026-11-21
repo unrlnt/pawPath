@@ -7,3 +7,21 @@ body,
 #root {
   height: 100%;
 }
+
+body {
+  @apply bg-cream font-body text-ink antialiased;
+}
+
+h1,
+h2,
+h3 {
+  @apply font-display;
+}
+
+/* MapLibre popups in PawPath style. */
+.maplibregl-popup-content {
+  @apply rounded-blob bg-cream px-4 py-3 font-body text-ink shadow-soft;
+}
+.maplibregl-ctrl-attrib {
+  @apply font-body text-[11px];
+}

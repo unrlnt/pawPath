@@ -1,0 +1,2 @@
+https://download.geofabrik.de/europe/netherlands-latest.osm.pbf
+https://download.geofabrik.de/europe/germany-latest.osm.pbf

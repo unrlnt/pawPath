@@ -2,9 +2,12 @@
  * All tunables live here. No magic numbers in components, lib functions or
  * data sources — import from this file instead.
  *
- * Values are taken from CLAUDE.md; where the spec gave a range or an
- * approximation the chosen concrete value is noted in a comment.
+ * This module is also imported by the Node build tools (tools/tiles), where
+ * `import.meta.env` does not exist — read env vars through `ENV` only.
  */
+
+const ENV: Readonly<Record<string, string | undefined>> =
+  (import.meta as { env?: Record<string, string | undefined> }).env ?? {};
 
 /* ------------------------------------------------------------------ *
  * Identity
@@ -12,322 +15,51 @@
 
 export const APP_NAME = 'PawPath';
 
-/**
- * Sentinel meaning "no contact URL has been set yet". Queries built while this
- * is still in place say so honestly rather than carrying an invented URL — see
- * `buildOverpassQL`.
- */
+/** Sentinel meaning "no contact URL has been set yet". */
 export const APP_CONTACT_URL_UNSET = 'UNSET';
 
 /**
- * How an Overpass instance operator reaches us before deciding to block us.
- *
- * Browsers forbid setting `User-Agent`, so the spec's "descriptive
- * User-Agent-equivalent" (§5) is emitted as a comment at the top of every
- * query instead, and this URL is the whole of its value.
- *
- * MUST be set to a real, reachable public URL — a repository or the deployed
- * site — before the app is posted publicly (CLAUDE.md §11, Phase 7). Keep it
- * current afterwards: a dead link here is the same as no contact at all.
+ * Public contact for the project — the repository once it is public
+ * (CLAUDE.md §11, Phase 7 checklist). Shown in the about/attribution text.
  */
 export const APP_CONTACT_URL: string = APP_CONTACT_URL_UNSET;
 
 /* ------------------------------------------------------------------ *
- * Tile grid  (CLAUDE.md §8)
+ * Our vector tiles  (CLAUDE.md §3, §8)
  * ------------------------------------------------------------------ */
 
-/** Edge length of one query tile, in kilometres. Spec says "~2 km". */
-export const TILE_SIZE_KM = 2;
-
-/** Mean earth radius in km — used to convert the tile size to degrees. */
-export const EARTH_RADIUS_KM = 6371;
-
-/** Degrees of latitude per kilometre. Constant everywhere. */
-export const DEGREES_PER_KM_LAT = 360 / (2 * Math.PI * EARTH_RADIUS_KM);
+/** Highest zoom the tiles are built to; MapLibre overzooms above it. */
+export const TILE_MAX_ZOOM = 14;
 
 /**
- * Latitude beyond which the grid stops widening tiles in longitude.
- * Prevents a divide-by-~0 in the cos(lat) correction at the poles.
- */
-export const TILE_GRID_MAX_LATITUDE = 85;
-
-/* ------------------------------------------------------------------ *
- * Query strategy  (CLAUDE.md §8)
- * ------------------------------------------------------------------ */
-
-/** Below this zoom, show a "zoom in" hint instead of querying amenities. */
-export const MIN_QUERY_ZOOM = 13;
-
-/**
- * Layers that need to be closer in than `MIN_QUERY_ZOOM` before they load.
+ * Lowest zoom each layer is shown at. Built into the tiles at
+ * `min(value, TILE_MAX_ZOOM)` and used by the style and the "zoom in" hint.
  *
- * Surface measured 700–780 features/km² in Run 1 — roughly 2,800 ways per 2 km
- * tile, an order of magnitude past everything else. Loading it at the same zoom
- * as benches would dominate every viewport's payload and slot time. At z16 a
- * viewport covers about a sixteenth of the area, which brings it back in line.
+ * Surface is held back to z15: it is an order of magnitude denser than every
+ * other layer (700–780 features/km² measured with all highways).
  */
-export const LAYER_MIN_ZOOM: Readonly<Record<string, number>> = {
-  surface: 16,
-};
-
-/** Minimum zoom at which a layer may be queried. */
-export function minZoomForLayer(layer: string): number {
-  return LAYER_MIN_ZOOM[layer] ?? MIN_QUERY_ZOOM;
-}
-
-/** Milliseconds to wait after the map settles before issuing queries. */
-export const QUERY_DEBOUNCE_MS = 500;
-
-/**
- * Client-side abort for a single Overpass request, per output group.
- *
- * A healthy amenity query returns in 1–3 s (measured in Run 1: benches 1.1 s,
- * drinking water 1.1 s). Waiting 40 s for one is waiting on a request that has
- * already failed. Polygon queries genuinely do take tens of seconds, so they
- * keep a long timeout — the two must not share a budget.
- */
-export const OVERPASS_TIMEOUT_MS = {
-  /** Point queries: benches, bins, drinking water. */
-  amenity: 12_000,
-  /** Polygon queries: shade, water, off-leash areas, surface. */
-  area: 45_000,
+export const LAYER_MIN_ZOOM = {
+  shade: 11,
+  offLeash: 11,
+  water: 11,
+  surface: 15,
+  benches: 13,
+  waste: 13,
+  drinkingWater: 13,
 } as const;
 
-/** Fallback for callers outside the two groups (recon, connectivity test). */
-export const OVERPASS_REQUEST_TIMEOUT_MS = OVERPASS_TIMEOUT_MS.area;
-
 /**
- * Value passed to Overpass's own `[timeout:N]` setting, per group, in seconds.
- * Kept below the client timeout so the server gives up first and returns a
- * readable remark rather than us aborting blind.
+ * Small JSON written by the tile build: `{ "url": "pawpath-YYYYMMDD.pmtiles", ... }`.
+ * Served with a short cache lifetime, while the `.pmtiles` it points at is
+ * immutable — so a new build never mixes with tiles cached from an old one.
  */
-export const OVERPASS_SERVER_TIMEOUT_S = {
-  amenity: 10,
-  area: 40,
-} as const;
+export const TILES_MANIFEST_URL: string = ENV['VITE_TILES_MANIFEST_URL'] ?? '/tiles/manifest.json';
 
 /* ------------------------------------------------------------------ *
- * Latency budget  (per user action, not per request)
+ * Conditions  (Phase 3)
  * ------------------------------------------------------------------ */
 
-/**
- * Longest the UI will block on one user action — a pan, a zoom, a search.
- *
- * The retry policy's worst case is minutes, which on mobile is
- * indistinguishable from broken. Past this cap the UI stops waiting and shows
- * whatever has arrived; the retries do NOT stop, they continue in the
- * background and paint tiles as they land. A cap that cancelled the work would
- * just be the Phase 1 "give up early" bug wearing a new hat.
- */
-export const USER_ACTION_LATENCY_BUDGET_MS = 50_000;
-
-/**
- * Hard cap on elements returned by one query (`out ... <cap>`). A response at
- * exactly this size is reported as truncated rather than silently trusted.
- */
-export const OVERPASS_RESULT_CAP = 20_000;
-
-/**
- * ONE request at a time, always.
- *
- * The Overpass usage policy asks clients not to run requests in parallel from
- * one IP or IP block: an instance's slots are shared across everyone behind
- * that address, so parallelism from a single client crowds out other users and
- * is what earns a 429. This is a policy constraint, not a tuning knob — raising
- * it is a violation, not an optimisation.
- */
-export const OVERPASS_MAX_CONCURRENCY = 1;
-
-/** Pause between sequential Overpass requests. Politeness, not a limit. */
-export const OVERPASS_INTER_REQUEST_DELAY_MS = 300;
-
-/**
- * Attempts against ONE instance before rotating.
- *
- * Run 2's failures were not the servers: the same queries succeed by hand from
- * overpass-turbo in the same browser on the same IP. We rotated through every
- * instance on the first network-class error and gave up in 10–18 s with no real
- * retry. Transient errors are normal and clear on retry, so we now try the same
- * instance repeatedly before moving on.
- */
-export const OVERPASS_ATTEMPTS_PER_INSTANCE = 3;
-
-/** Total attempts for one query across all instances. */
-export const OVERPASS_MAX_ATTEMPTS = 5;
-
-/** First backoff pause, doubling per attempt: ~1s, 2s, 4s, 8s, 16s. */
-export const OVERPASS_BACKOFF_BASE_MS = 1_000;
-
-/** Ceiling for a single backoff pause. */
-export const OVERPASS_BACKOFF_MAX_MS = 30_000;
-
-/**
- * Jitter fraction of each backoff delay. 0.5 = "equal jitter": half the delay
- * is fixed, half is random. Without this, every client that hit the same
- * outage retries in lockstep and re-creates the burst that caused it.
- */
-export const OVERPASS_BACKOFF_JITTER = 0.5;
-
-/** Consecutive failures before an instance is parked by the circuit breaker. */
-export const OVERPASS_BREAKER_THRESHOLD = 3;
-
-/** How long a parked instance stays parked before it is probed again. */
-export const OVERPASS_BREAKER_COOLDOWN_MS = 5 * 60_000;
-
-/** How long a fetched `/api/status` reading stays usable. */
-export const OVERPASS_STATUS_TTL_MS = 10_000;
-
-/** Cap on how long we will wait for a slot reported by `/api/status`. */
-export const OVERPASS_MAX_SLOT_WAIT_MS = 90_000;
-
-/* ------------------------------------------------------------------ *
- * Overpass instances
- * ------------------------------------------------------------------ */
-
-export interface OverpassInstanceConfig {
-  readonly label: string;
-  readonly url: string;
-  /** `/api/status`, used for slot-aware waiting on 429. */
-  readonly statusUrl: string;
-  /**
-   * `active` instances take part in rotation. `candidate` ones do not: they
-   * appear only in the dev connectivity tester, so they can be verified
-   * (planet-wide coverage, CORS, no UA policing) before being promoted here.
-   */
-  readonly status: 'active' | 'candidate';
-  readonly note: string;
-}
-
-/**
- * Public Overpass instances, in the order they are tried
- * (https://wiki.openstreetmap.org/wiki/Overpass_API#Public_Overpass_API_instances).
- *
- * kumi.systems leads because its wiki entry permits use for any purpose and it
- * has the largest public capacity. overpass-api.de is at normal priority: the
- * 406 that once demoted it was our own `Accept` header, not bot filtering —
- * see `OVERPASS_ACCEPT_HEADER`.
- *
- * To add an instance: confirm from the wiki table that it serves **planet**
- * data (several are regional extracts and would silently return nothing
- * outside their region), then that it sends permissive CORS headers, then flip
- * `status` to `active`. The connectivity tester on the map page does the last
- * two checks for you.
- */
-export const OVERPASS_INSTANCE_CONFIGS: readonly OverpassInstanceConfig[] = [
-  {
-    label: 'kumi.systems',
-    url: 'https://overpass.kumi.systems/api/interpreter',
-    statusUrl: 'https://overpass.kumi.systems/api/status',
-    status: 'active',
-    note: 'Wiki entry permits any purpose. Largest public capacity. Primary.',
-  },
-  {
-    label: 'overpass-api.de',
-    url: 'https://overpass-api.de/api/interpreter',
-    statusUrl: 'https://overpass-api.de/api/status',
-    status: 'active',
-    note: 'Reference instance. Normal priority.',
-  },
-  {
-    label: 'private.coffee',
-    url: 'https://overpass.private.coffee/api/interpreter',
-    statusUrl: 'https://overpass.private.coffee/api/status',
-    status: 'active',
-    note: 'Planet-wide community instance.',
-  },
-  {
-    label: 'osm.ch',
-    url: 'https://overpass.osm.ch/api/interpreter',
-    statusUrl: 'https://overpass.osm.ch/api/status',
-    status: 'candidate',
-    note:
-      'Swiss OSM association. VERIFY planet coverage and CORS with the ' +
-      'connectivity tester before promoting — it may be a regional extract.',
-  },
-  {
-    label: 'osm.jp',
-    url: 'https://overpass.osm.jp/api/interpreter',
-    statusUrl: 'https://overpass.osm.jp/api/status',
-    status: 'candidate',
-    note: 'Japanese mirror. VERIFY planet coverage and CORS before promoting.',
-  },
-];
-
-/** Instances that take part in rotation, in order. */
-export const OVERPASS_INSTANCES: readonly string[] = OVERPASS_INSTANCE_CONFIGS.filter(
-  (instance) => instance.status === 'active',
-).map((instance) => instance.url);
-
-/* ------------------------------------------------------------------ *
- * Request shape  (CORS — see CLAUDE.md §5)
- * ------------------------------------------------------------------ */
-
-/**
- * `Accept` sent on every Overpass request.
- *
- * States our intent (`application/json`) but keeps a wildcard fallback, and the
- * fallback is deliberate. Measured against overpass-api.de on 2026-09-07:
- *
- * | From                     | Accept                | Result |
- * |--------------------------|-----------------------|--------|
- * | browser `fetch`, localhost | wildcard            | 200    |
- * | browser address bar      | `text/html,…`         | 406    |
- * | curl (default UA)        | `application/json`    | 200    |
- * | curl (default UA)        | `text/html,…`         | 200    |
- * | curl (browser UA string) | any of the above      | 406    |
- *
- * So the discriminator is not the same everywhere: from a browser it is the
- * `Accept` header; from this development machine it is the `User-Agent`, and
- * `Accept` makes no difference at all. `overpass-api.de` balances across
- * backends whose configuration differs, so both observations are real.
- *
- * A bare `application/json` would therefore be a bet. The wildcard fallback
- * means negotiation cannot fail even on an instance that labels its JSON
- * `application/osm3s+json`, while the explicit type still says what we want.
- *
- * `Accept` is a CORS-safelisted request header, so this adds no preflight.
- */
-export const OVERPASS_ACCEPT_HEADER = 'application/json, */*;q=0.8';
-
-/**
- * `Content-Type` for the POST body.
- *
- * MUST stay one of the three CORS-safelisted values (`text/plain`,
- * `application/x-www-form-urlencoded`, `multipart/form-data`). Anything else —
- * `application/json` above all — turns every request into a preflighted one,
- * and a failed `OPTIONS` preflight surfaces in the browser as a bare
- * `TypeError` with no status and no response: exactly the "pre-HTTP fetch
- * rejection" that Run 2 hit on all three instances at once.
- */
-export const OVERPASS_CONTENT_TYPE = 'application/x-www-form-urlencoded';
-
-/* ------------------------------------------------------------------ *
- * Usage policy compliance  (CLAUDE.md §5, §9)
- * ------------------------------------------------------------------ */
-
-/**
- * Documented safety margin in the Overpass usage policy: roughly 10,000
- * queries or 1 GB per day from one user. We budget per session, well under it,
- * and stop rather than degrade quietly. Surfaced in the dev cache inspector.
- */
-export const OVERPASS_SESSION_REQUEST_BUDGET = 1_000;
-
-/** Session download budget in bytes, against the policy's ~1 GB/day. */
-export const OVERPASS_SESSION_BYTE_BUDGET = 100 * 1024 * 1024;
-
-/* ------------------------------------------------------------------ *
- * Cache TTLs  (CLAUDE.md §8) — consumed by the Phase 2 IndexedDB layer
- * ------------------------------------------------------------------ */
-
-export const OSM_TILE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 export const CONDITIONS_TTL_MS = 60 * 60 * 1000; // 1 hour
-
-/**
- * Part of every cached tile key. Bump it whenever the shape of a normalised
- * `Feature`, a level derivation or a layer's selectors change — old entries
- * then stop matching instead of being silently reused under new semantics.
- */
-export const TILE_CACHE_SCHEMA_VERSION = 1;
 
 /* ------------------------------------------------------------------ *
  * Paw surface temperature model  (CLAUDE.md §7)
@@ -434,41 +166,37 @@ export const WALKABLE_HIGHWAY_TYPES = [
 /* ------------------------------------------------------------------ *
  * Basemap  (CLAUDE.md §4)
  *
- * Nothing provider-specific may leak into components: they read MAP_STYLE_URL
- * and MAP_ATTRIBUTION and nothing else. Swapping MapTiler for Stadia or
- * Protomaps is an env-var change.
+ * Components read MAP_STYLE_URL and MAP_ATTRIBUTION and nothing else, so
+ * swapping provider is an env-var change.
  * ------------------------------------------------------------------ */
 
-const MAPTILER_KEY = import.meta.env['VITE_MAPTILER_KEY'] ?? '';
-
-/**
- * Default basemap (decided 2026-11-20, CLAUDE.md §4): OpenFreeMap needs no
- * key and has no request limits, so the app works with no configuration.
- */
+/** Default basemap: no key, no request limits (CLAUDE.md §4). */
 export const OPENFREEMAP_STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty';
 
+const MAPTILER_KEY = ENV['VITE_MAPTILER_KEY'] ?? '';
+
 /**
- * Style URL for the basemap.
- *
- * NEVER point this at tile.openstreetmap.org — their tile usage policy forbids
- * apps like this one, and doing so gets the app blocked (CLAUDE.md §4).
- *
- * `VITE_MAP_STYLE_URL` overrides everything, so a different provider needs no
- * code change. Otherwise MapTiler is used when a key is present.
+ * Style URL for the basemap. NEVER tile.openstreetmap.org — their usage policy
+ * forbids apps like this one.
  */
 export const MAP_STYLE_URL: string =
-  import.meta.env['VITE_MAP_STYLE_URL'] ??
+  ENV['VITE_MAP_STYLE_URL'] ??
   (MAPTILER_KEY === ''
     ? OPENFREEMAP_STYLE_URL
     : `https://api.maptiler.com/maps/streets-v2/style.json?key=${MAPTILER_KEY}`);
 
-/** True when no basemap provider is configured; the app then runs map-less. */
-export const MAP_STYLE_CONFIGURED = MAP_STYLE_URL !== '';
+/**
+ * Whether to repaint the basemap in PawPath's palette. Only safe for styles
+ * built on the OpenMapTiles schema (OpenFreeMap, MapTiler streets).
+ */
+export const MAP_RECOLOUR_BASEMAP = ENV['VITE_MAP_RECOLOUR'] !== 'false';
 
-/** Credit for the basemap provider. Displayed permanently — licence terms. */
-export const MAP_ATTRIBUTION: string =
-  import.meta.env['VITE_MAP_ATTRIBUTION'] ??
-  (MAPTILER_KEY === '' ? 'OpenFreeMap © OpenMapTiles' : '© MapTiler');
+/**
+ * Extra basemap credit. Normally unset: OpenFreeMap and MapTiler styles carry
+ * their own attribution, and adding it again just duplicates it. Set
+ * `VITE_MAP_ATTRIBUTION` only for a style that credits nothing itself.
+ */
+export const MAP_ATTRIBUTION: string | undefined = ENV['VITE_MAP_ATTRIBUTION'];
 
 export const MAP_DEFAULT_ZOOM = 15;
 export const MAP_MAX_ZOOM = 19;
@@ -484,108 +212,32 @@ export const MAP_FALLBACK_CENTRE = { lat: 52.3508, lng: 5.2647, label: 'Almere, 
 export const GEOLOCATION_TIMEOUT_MS = 10_000;
 export const GEOLOCATION_MAX_AGE_MS = 60_000;
 
-/** Nominatim's usage policy allows at most one request per second. */
-export const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
-export const NOMINATIM_MIN_INTERVAL_MS = 1_000;
-export const NOMINATIM_DEBOUNCE_MS = 600;
-export const NOMINATIM_RESULT_LIMIT = 5;
-export const NOMINATIM_TIMEOUT_MS = 10_000;
-
-/* ------------------------------------------------------------------ *
- * Viewport → tiles
- * ------------------------------------------------------------------ */
-
 /**
- * Most tiles fetched for one viewport. Over this, the centre-most tiles are
- * fetched and the UI says coverage is partial — better than a burst of
- * requests that will be rate limited anyway.
+ * Photon place search (CLAUDE.md §5). Public instance is fair-use: searches run
+ * on submit only, at most one per `PHOTON_MIN_INTERVAL_MS`, never per keystroke.
  */
-export const MAX_TILES_PER_VIEWPORT = 9;
-
-/* ------------------------------------------------------------------ *
- * Tile cache  (CLAUDE.md §8)
- * ------------------------------------------------------------------ */
-
-/** Maximum cached tile-layer entries before LRU eviction starts. */
-export const TILE_CACHE_MAX_ENTRIES = 2_000;
-
-/** Approximate byte budget for the cache; eviction targets whichever binds first. */
-export const TILE_CACHE_MAX_BYTES = 40 * 1024 * 1024;
-
-/** Entries removed past the limit in one eviction pass, to avoid thrashing. */
-export const TILE_CACHE_EVICTION_BATCH = 100;
+export const PHOTON_URL: string = ENV['VITE_PHOTON_URL'] ?? 'https://photon.komoot.io/api/';
+export const PHOTON_MIN_QUERY_LENGTH = 3;
+export const PHOTON_MIN_INTERVAL_MS = 1_000;
+export const PHOTON_RESULT_LIMIT = 5;
+export const PHOTON_TIMEOUT_MS = 10_000;
 
 /* ------------------------------------------------------------------ *
  * Feature flags
  * ------------------------------------------------------------------ */
 
-/**
- * Phase 7's ad slot. Off by default; the layout reserves the space either way
- * so enabling it shifts nothing (CLAUDE.md §9).
- */
-export const ADS_ENABLED = import.meta.env['VITE_ADS_ENABLED'] === 'true';
+/** Phase 7's ad slot. Off by default; the layout reserves the space either way. */
+export const ADS_ENABLED = ENV['VITE_ADS_ENABLED'] === 'true';
 
-/** Height of the reserved ad slot, in CSS pixels. Reserved whether or not it is on. */
+/** Height of the reserved ad slot, in CSS pixels. */
 export const AD_SLOT_HEIGHT_PX = 50;
 
-/**
- * Route Overpass through a pass-through proxy instead of calling instances
- * directly. OFF by default — the proxy itself is not built (CLAUDE.md §11,
- * Phase 2 seam).
- */
-export const PROXY_ENABLED = import.meta.env['VITE_OVERPASS_PROXY_ENABLED'] === 'true';
-
-/** Endpoint the proxy seam forwards raw Overpass QL to when enabled. */
-export const PROXY_ENDPOINT: string = import.meta.env['VITE_OVERPASS_PROXY_URL'] ?? '';
-
 /* ------------------------------------------------------------------ *
- * Disclaimer  (CLAUDE.md §10)
+ * localStorage keys. Bump a version suffix to reset a changed value.
  * ------------------------------------------------------------------ */
 
-/** localStorage keys. Bump a version suffix to re-show a changed disclaimer. */
 export const STORAGE_KEYS = {
   lastLocation: 'pawpath.lastLocation.v1',
   disclaimerAccepted: 'pawpath.disclaimer.v1',
-  enabledLayers: 'pawpath.layers.v1',
-} as const;
-
-/* ------------------------------------------------------------------ *
- * Recon page (Phase 1, dev only)
- * ------------------------------------------------------------------ */
-
-export const RECON_DEFAULT_RADIUS_KM = 2;
-
-/**
- * Politeness pacing for the recon page. Run 1 fired queries back-to-back and
- * spent most of its wall clock in Overpass's queue: healthy responses came back
- * in 1–3 s, while the 35–80 s times and every 504 were our own burst waiting on
- * itself. Slowing down makes a survey both kinder and *faster* end to end.
- */
-export const RECON_MIN_QUERY_INTERVAL_MS = 5_000;
-
-/** Pause between presets when surveying several locations in one go. */
-export const RECON_PRESET_INTERVAL_MS = 30_000;
-
-/**
- * Test locations for the coverage survey. Two home markets plus two controls
- * outside Europe — one dense-mapping city and one where OSM amenity mapping is
- * known to be thinner, so the "elsewhere" answer is not one lucky sample.
- */
-export const RECON_PRESETS = [
-  { label: 'Almere, NL', lat: 52.3508, lng: 5.2647, country: 'NL' },
-  { label: 'Leipzig, DE', lat: 51.3397, lng: 12.3731, country: 'DE' },
-  { label: 'Melbourne, AU', lat: -37.8136, lng: 144.9631, country: 'AU' },
-  { label: 'Bogotá, CO', lat: 4.711, lng: -74.0721, country: 'CO' },
-] as const;
-
-/**
- * Coverage verdict thresholds for the recon table, expressed as features per
- * km². Rough, but they turn a raw count into the yes/no answer Phase 1 needs:
- * is there enough data here to justify a toggle?
- */
-export const RECON_DENSITY_THRESHOLDS = {
-  /** At or above this, the layer is clearly worth a toggle. */
-  good: 1.0,
-  /** Between `thin` and `good`: usable, but sparse enough to feel empty. */
-  thin: 0.2,
+  enabledLayers: 'pawpath.layers.v2',
 } as const;
