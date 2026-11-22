@@ -22,7 +22,15 @@ import { SOURCE_ATTRIBUTION } from '../../data/attribution';
 import { isLayerKey, type FeatureLevel, type LayerKey } from '../../data/layers';
 import { GLYPHS, registerIcons } from '../../map/icons';
 import type { PawBySurface } from '../../lib/conditions/pawBySurface';
-import { PAWPATH_SOURCE_ID, SURFACE_LAYER_IDS, pawpathLayerSpecs, surfacePaint } from '../../map/pawpathLayers';
+import type { WaterWarnings } from '../../data/sources/waterWarnings';
+import {
+  PAWPATH_SOURCE_ID,
+  SURFACE_LAYER_IDS,
+  WATER_ICON_LAYER_ID,
+  pawpathLayerSpecs,
+  surfacePaint,
+  waterIcon,
+} from '../../map/pawpathLayers';
 import { popupModel, type PopupContext } from '../../map/popupModel';
 import { warmBasemap } from '../../map/warmBasemap';
 import { palette } from '../../styles/tokens';
@@ -57,6 +65,8 @@ export interface MapViewProps {
   readonly disabledLevels: readonly FeatureLevel[];
   /** Live paw estimate per surface kind: recolours every path by its own surface. */
   readonly pawBySurface: PawBySurface | undefined;
+  /** Runtime water warnings; named bathing sites turn red. */
+  readonly warnings: WaterWarnings;
   readonly userPosition: { lat: number; lng: number } | undefined;
   readonly onViewportChange: (viewport: Viewport) => void;
   readonly onDropPin: (position: { lat: number; lng: number }) => void;
@@ -118,6 +128,15 @@ function popupContent(
   if (model.name !== undefined) add(model.name, 'mt-1 text-sm font-bold');
   for (const detail of model.details) add(detail, 'text-sm text-inkSoft');
   if (model.note !== undefined) add(model.note, 'mt-1 text-sm font-bold text-ink');
+  if (model.sourceUrl !== undefined) {
+    const link = document.createElement('a');
+    link.href = model.sourceUrl;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.className = 'mt-2 block text-sm font-bold text-ink underline';
+    link.textContent = 'Today’s status at the official source';
+    root.append(link);
+  }
   if (model.osmUrl !== undefined) {
     const link = document.createElement('a');
     link.href = model.osmUrl;
@@ -137,6 +156,7 @@ export default function MapView({
   enabledLayers,
   disabledLevels,
   pawBySurface,
+  warnings,
   userPosition,
   onViewportChange,
   onDropPin,
@@ -145,8 +165,8 @@ export default function MapView({
   const mapRef = useRef<MapLibreMap | null>(null);
   const styleReady = useRef(false);
   // Latest props for handlers registered once.
-  const latest = useRef({ tilesUrl, enabledLayers, disabledLevels, pawBySurface, userPosition, onViewportChange, onDropPin });
-  latest.current = { tilesUrl, enabledLayers, disabledLevels, pawBySurface, userPosition, onViewportChange, onDropPin };
+  const latest = useRef({ tilesUrl, enabledLayers, disabledLevels, pawBySurface, warnings, userPosition, onViewportChange, onDropPin });
+  latest.current = { tilesUrl, enabledLayers, disabledLevels, pawBySurface, warnings, userPosition, onViewportChange, onDropPin };
 
   /** Adds our source and layers if the style is ready and the URL known. Idempotent. */
   const syncPawpath = (map: MapLibreMap): void => {
@@ -158,7 +178,9 @@ export default function MapView({
       map.addSource(PAWPATH_SOURCE_ID, {
         type: 'vector',
         url: `pmtiles://${url}`,
-        attribution: `<a href="${SOURCE_ATTRIBUTION.osm.url}" target="_blank" rel="noopener">${SOURCE_ATTRIBUTION.osm.label}</a>`,
+        attribution: [SOURCE_ATTRIBUTION.osm, SOURCE_ATTRIBUTION.eea]
+          .map((s) => `<a href="${s.url}" target="_blank" rel="noopener">${s.label}</a>`)
+          .join(' | '),
       });
       for (const spec of specs) map.addLayer(spec);
     } else {
@@ -184,6 +206,10 @@ export default function MapView({
       if (map.getLayer(id) === undefined) continue;
       map.setPaintProperty(id, 'line-color', paint['line-color']);
       map.setPaintProperty(id, 'line-width', paint['line-width']);
+    }
+
+    if (map.getLayer(WATER_ICON_LAYER_ID) !== undefined) {
+      map.setLayoutProperty(WATER_ICON_LAYER_ID, 'icon-image', waterIcon([...latest.current.warnings.byId.keys()]));
     }
 
     const enabled = new Set(latest.current.enabledLayers);
@@ -304,6 +330,7 @@ export default function MapView({
         .setDOMContent(
           popupContent(layer, hit.properties, hit.id, {
             ...(latest.current.pawBySurface === undefined ? {} : { pawBySurface: latest.current.pawBySurface }),
+            warnings: latest.current.warnings,
           }),
         )
         .addTo(map);
@@ -348,7 +375,7 @@ export default function MapView({
     const map = mapRef.current;
     if (map !== null) syncPawpath(map);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tilesUrl, enabledLayers, disabledLevels, pawBySurface]);
+  }, [tilesUrl, enabledLayers, disabledLevels, pawBySurface, warnings]);
 
   useEffect(() => {
     const map = mapRef.current;

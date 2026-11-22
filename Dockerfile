@@ -30,7 +30,7 @@ HEALTHCHECK --interval=30s --timeout=3s CMD wget -qO- http://127.0.0.1/healthz |
 # ---------------------------------------------------------------- tiles
 FROM eclipse-temurin:21-jre-noble AS tiles
 RUN apt-get update \
- && apt-get install -y --no-install-recommends osmium-tool curl ca-certificates \
+ && apt-get install -y --no-install-recommends osmium-tool curl jq ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 ARG PLANETILER_VERSION=0.10.2
 RUN curl -fsSL -o /opt/planetiler.jar \

@@ -42,6 +42,12 @@ check everything works, then switch to `planet` (hours). Changing
 - RAM: Planetiler works on the filtered data only; 4 GB heap is the starting
   point.
 
+### Bathing sites
+
+Each tile build also downloads the official EU bathing sites from the EEA
+(`water.discomap.eea.europa.eu`, a few seconds, ~11 MB). If the EEA is down,
+the previous copy in `tiles-work` is reused; the build never fails over it.
+
 ### Watching the builder
 
 Coolify → `tiles` service → Logs. A build logs `[tiles …] downloading`,
@@ -80,6 +86,7 @@ proxy in front.
 | `/`, `/index.html` | 5 minutes | |
 | `/tiles/pawpath-YYYYMMDD.pmtiles` | 1 year, immutable | new name per build; range requests; never re-compressed |
 | `/tiles/manifest.json` | 5 minutes | names the current build |
+| `/tiles/water-warnings.json` | 5 minutes | optional; absent today (no usable source — see `docs/water-warnings.md`) |
 | `/tiles/.*` | 404 | in-progress builds and markers are hidden |
 | `/healthz` | — | `ok`, used by the container health check |
 

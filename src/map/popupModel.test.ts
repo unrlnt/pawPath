@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { parseWaterWarnings } from '../data/sources/waterWarnings';
 import { pawBySurface } from '../lib/conditions/pawBySurface';
 import { osmUrlFor, popupModel } from './popupModel';
 
@@ -59,5 +60,40 @@ describe('live paw reading for paths (Phase 5)', () => {
 
   it('falls back to the material when no weather is loaded', () => {
     expect(popupModel('surface', { level: 'high', surface: 'asphalt' }, 22).title).toBe('Hot surface (asphalt, concrete)');
+  });
+});
+
+
+describe('bathing spots (Phase 6)', () => {
+  const site = { bwid: 'NLBW07_VRL01', name: 'DE VROLIJK', category: 'Lake', quality: 'Excellent', quality_year: '2022', profile: 'https://www.zwemwater.nl/', level: 'monitored' };
+
+  it('never says "safe", names the season of the class, and links the official source', () => {
+    const model = popupModel('water', site, 99, { month: 7 });
+    expect(model.title).toBe('Official bathing spot');
+    expect(model.details).toContain('EU classification (2022 season): Excellent');
+    expect(model.note).toMatch(/not a safety guarantee/);
+    expect(model.sourceUrl).toBe('https://www.zwemwater.nl/');
+    expect(JSON.stringify(model)).not.toMatch(/\bsafe to swim\b/i);
+  });
+
+  it('has no OpenStreetMap link: this is EEA data', () => {
+    expect(popupModel('water', site, 1233, { month: 7 }).osmUrl).toBeUndefined();
+  });
+
+  it('says plainly when it is outside the bathing season', () => {
+    expect(popupModel('water', site, 1, { month: 11 }).details).toContain(
+      'Outside the bathing season: it is not being monitored right now.',
+    );
+  });
+
+  it('turns into a warning when the runtime feed names the site', () => {
+    const warnings = parseWaterWarnings({
+      warnings: [{ bwid: 'NLBW07_VRL01', kind: 'bluegreen_algae', message: 'Blue-green algae present.', url: 'https://example.org/n' }],
+    });
+    const model = popupModel('water', site, 1, { month: 7, warnings });
+    expect(model.title).toBe('Blue-green algae');
+    expect(model.details[0]).toBe('Blue-green algae present.');
+    expect(model.icon?.glyph).toBe('alert');
+    expect(model.sourceUrl).toBe('https://example.org/n');
   });
 });

@@ -16,6 +16,11 @@ export const SOURCE_ATTRIBUTION = {
     licence: 'ODbL 1.0',
     url: 'https://www.openstreetmap.org/copyright',
   },
+  eea: {
+    label: 'Bathing sites © European Environment Agency',
+    licence: 'EEA standard re-use policy (attribution)',
+    url: 'https://www.eea.europa.eu/en/legal-notice',
+  },
   openMeteo: {
     label: 'Weather: Open-Meteo',
     licence: 'CC BY 4.0',

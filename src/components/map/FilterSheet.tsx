@@ -137,8 +137,9 @@ export default function FilterSheet({
                 ) : null}
                 {layer.key === 'water' ? (
                   <p className="ml-10 text-xs text-inkSoft">
-                    Official bathing spots and warnings arrive soon. Ordinary ponds and ditches are never
-                    marked — almost no water is monitored.
+                    Official EU bathing spots only, with a link to today’s status at the official source.
+                    Ordinary ponds, ditches and canals are never marked — they are not monitored, so the
+                    map cannot say anything about them.
                   </p>
                 ) : null}
                 {on && levels !== undefined ? (

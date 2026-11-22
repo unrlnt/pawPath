@@ -10,6 +10,7 @@ import {
   MAP_DEFAULT_ZOOM,
   MAP_FALLBACK_CENTRE,
   STORAGE_KEYS,
+  WATER_WARNINGS_REFRESH_MS,
 } from '../../config';
 import {
   DEFAULT_DISABLED_FEATURE_LEVELS,
@@ -20,6 +21,7 @@ import {
   type LayerKey,
 } from '../../data/layers';
 import { loadTilesManifest } from '../../data/sources/tilesManifest';
+import { NO_WARNINGS, loadWaterWarnings, type WaterWarnings } from '../../data/sources/waterWarnings';
 import { isStoredLocation, readStored, writeStored } from '../../lib/storage';
 import ConditionsCard from '../conditions/ConditionsCard';
 import { useConditions } from '../conditions/useConditions';
@@ -65,6 +67,23 @@ export default function MapPage() {
     () => readStored(STORAGE_KEYS.disabledLevels, isLevelList) ?? [...DEFAULT_DISABLED_FEATURE_LEVELS],
   );
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [warnings, setWarnings] = useState<WaterWarnings>(NO_WARNINGS);
+
+  // Warnings change during the day in season; refresh every 30 minutes.
+  useEffect(() => {
+    const controller = new AbortController();
+    const load = (): void => {
+      void loadWaterWarnings(controller.signal).then((w) => {
+        if (!controller.signal.aborted) setWarnings(w);
+      });
+    };
+    load();
+    const timer = setInterval(load, WATER_WARNINGS_REFRESH_MS);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+    };
+  }, []);
 
   const toggleLevel = useCallback((level: FeatureLevel) => {
     setDisabledLevels((current) => {
@@ -144,6 +163,7 @@ export default function MapPage() {
           enabledLayers={enabled}
           disabledLevels={disabledLevels}
           pawBySurface={paws}
+          warnings={warnings}
           userPosition={geolocation.position ?? pin}
           onViewportChange={setViewport}
           onDropPin={(position) => {

@@ -13,7 +13,7 @@
 #   tools/tiles/build.sh public/tiles data/flevoland.osm.pbf
 #   tools/tiles/build.sh /srv/tiles $(grep -v '^#' tools/tiles/sources-planet.txt)
 #
-# Needs: java 21+, osmium-tool, curl. No Node: the schema and the osmium filter
+# Needs: java 21+, osmium-tool, curl, jq. No Node: the schema and the osmium filter
 # are generated from src/data/layers.ts and committed (npm run tiles:schema).
 # In Docker this runs inside the `tiles` image; see docs/deployment.md.
 set -euo pipefail
@@ -64,6 +64,11 @@ for source in "$@"; do
   if [[ $delete_after == 1 ]]; then rm -f "$input"; fi
 done
 
+# Official EU bathing sites (EEA). Never fails the build: on error the last
+# good copy is kept, or an empty collection is used.
+bathing="$WORK_DIR/bathing-waters.geojson"
+"$TILES_DIR/fetch-bathing-waters.sh" "$bathing"
+
 merged="$WORK_DIR/merged.osm.pbf"
 if [[ $i -eq 1 ]]; then
   mv "$WORK_DIR/filtered/part-1.osm.pbf" "$merged"
@@ -79,6 +84,7 @@ log "building $OUT_NAME"
 java -Xmx"$JAVA_XMX" -jar "$PLANETILER_JAR" generate-custom \
   --schema="$TILES_DIR/pawpath.schema.yml" \
   --osm_path="$merged" \
+  --bathing_path="$bathing" \
   --output="$OUT_DIR/.$OUT_NAME.partial.pmtiles" \
   --tmpdir="$WORK_DIR/tmp" \
   --force

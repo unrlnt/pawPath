@@ -140,7 +140,24 @@ export interface LayerDefinition {
   /** OSM tags copied into the tile for popups. Never the full tag set. */
   readonly keepTags: readonly string[];
   readonly note?: string;
+  /**
+   * A non-OSM source feeding this layer at build time (Phase 6 onwards). The
+   * generator adds it to the Planetiler schema; `selectors` stay OSM-only.
+   */
+  readonly externalSource?: ExternalSourceKey;
 }
+
+/** Build-time sources other than OSM. Each is a `sources:` entry in the schema. */
+export const EXTERNAL_SOURCES = {
+  /**
+   * Official EU bathing water sites (EEA, Bathing Water Directive), fetched by
+   * tools/tiles/fetch-bathing-waters.sh. Properties: bwid, name, category,
+   * quality, quality_year, profile, country. Point geometry.
+   */
+  eeaBathingWater: { id: 'eea_bathing', arg: 'bathing_path', defaultPath: 'data/bathing-waters.geojson' },
+} as const;
+
+export type ExternalSourceKey = keyof typeof EXTERNAL_SOURCES;
 
 const eq = (key: string, value: string): TagCondition => ({ op: 'equals', key, value });
 
@@ -276,16 +293,20 @@ export const LAYERS: Readonly<Record<LayerKey, LayerDefinition>> = {
     label: 'Water',
     kind: 'area',
     minZoom: LAYER_MIN_ZOOM.water,
-    keepTags: ['name', 'water'],
+    keepTags: ['bwid', 'name', 'category', 'quality', 'quality_year', 'profile', 'country'],
     note:
-      'OSM only supplies candidate water bodies. Monitoring and warnings come ' +
-      'from EEA and the national portals in Phase 6. Never render "safe".',
-    selectors: [
-      { id: 'water.natural', label: 'natural=water', geometries: ['polygon'], conditions: [eq('natural', 'water')] },
-      { id: 'water.swimmingArea', label: 'leisure=swimming_area', geometries: ['polygon', 'point'], conditions: [eq('leisure', 'swimming_area')] },
-      { id: 'water.beach', label: 'natural=beach', geometries: ['polygon', 'point'], conditions: [eq('natural', 'beach')] },
-    ],
-    levels: [{ level: 'candidate', when: [] }],
+      'Official EU bathing sites only (EEA). Unmonitored water — ponds, ditches, ' +
+      'canals — is never drawn (§6). Warnings arrive at runtime from ' +
+      'water-warnings.json when a source with clear terms exists. Never "safe".',
+    /*
+     * No OSM selectors on purpose: OSM cannot tell a monitored bathing site
+     * from any pond, and §6 says unmonitored water draws nothing. Phase 2R
+     * shipped natural=water / swimming_area / beach as "candidate" — never
+     * drawn, only bytes; removed in Phase 6.
+     */
+    selectors: [],
+    externalSource: 'eeaBathingWater',
+    levels: [{ level: 'monitored', when: [] }],
   },
 
   benches: {

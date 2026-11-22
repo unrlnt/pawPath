@@ -47,6 +47,7 @@ with plain Docker. See [docs/deployment.md](docs/deployment.md).
 ## Attribution
 
 Map data © OpenStreetMap contributors, ODbL. Basemap © OpenFreeMap /
-OpenMapTiles. Weather data by Open-Meteo.com (CC BY 4.0). Place search by
+OpenMapTiles. Bathing sites © European Environment Agency. Weather data by
+Open-Meteo.com (CC BY 4.0). Place search by
 Photon. Attribution is a licence requirement and
 stays visible on the map.

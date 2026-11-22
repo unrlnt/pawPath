@@ -55,6 +55,18 @@ export const LAYER_MIN_ZOOM = {
  */
 export const TILES_MANIFEST_URL: string = ENV['VITE_TILES_MANIFEST_URL'] ?? '/tiles/manifest.json';
 
+/**
+ * Optional runtime water warnings (Phase 6, format in docs/water-warnings.md).
+ * Missing file = no warnings known: sites stay "monitored", never "safe".
+ */
+export const WATER_WARNINGS_URL: string = ENV['VITE_WATER_WARNINGS_URL'] ?? '/tiles/water-warnings.json';
+
+/** How often the app re-reads the warnings file. */
+export const WATER_WARNINGS_REFRESH_MS = 30 * 60_000;
+
+/** Official bathing seasons run roughly May–September (1-based months, inclusive). */
+export const BATHING_SEASON_MONTHS = { start: 5, end: 9 } as const;
+
 /* ------------------------------------------------------------------ *
  * Conditions  (Phase 3)
  * ------------------------------------------------------------------ */

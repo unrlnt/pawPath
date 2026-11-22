@@ -15,7 +15,9 @@ import {
 } from './layers';
 
 describe('shared layer examples (also run by `planetiler verify`)', () => {
-  for (const example of LAYER_EXAMPLES) {
+  // Non-OSM examples are checked by `planetiler verify` against the schema;
+  // the TS evaluator only knows OSM tags.
+  for (const example of LAYER_EXAMPLES.filter((e) => (e.source ?? 'osm') === 'osm')) {
     it(example.name, () => {
       const expectedLayers = [...new Set(example.expect.map((f) => f.layer))].sort();
       expect([...layersFor(example.tags)].sort()).toEqual(expectedLayers);

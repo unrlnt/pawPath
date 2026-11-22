@@ -20,6 +20,7 @@ import { APP_NAME, LAYER_MIN_ZOOM, TILE_MAX_ZOOM } from '../../src/config';
 import { LAYER_EXAMPLES } from '../../src/data/layerExamples';
 import {
   ALL_LAYERS,
+  EXTERNAL_SOURCES,
   type LayerDefinition,
   type OutputGeometry,
   type TagCondition,
@@ -59,6 +60,7 @@ const GEOMETRY_ORDER: readonly OutputGeometry[] = ['polygon', 'line', 'point', '
 
 function layerFeatures(layer: LayerDefinition): Expr[] {
   const minZoom = Math.min(LAYER_MIN_ZOOM[layer.key], TILE_MAX_ZOOM);
+  const external = layer.externalSource === undefined ? undefined : EXTERNAL_SOURCES[layer.externalSource];
 
   const attributes: Expr[] = [];
   if (layer.levels !== undefined) {
@@ -76,7 +78,7 @@ function layerFeatures(layer: LayerDefinition): Expr[] {
   }
   for (const tag of layer.keepTags) attributes.push({ key: tag, tag_value: tag });
 
-  return GEOMETRY_ORDER.flatMap((geometry) => {
+  const osmFeatures = GEOMETRY_ORDER.flatMap((geometry) => {
     const selectors = layer.selectors.filter((s) => s.geometries.includes(geometry));
     if (selectors.length === 0) return [];
     return [
@@ -89,6 +91,10 @@ function layerFeatures(layer: LayerDefinition): Expr[] {
       },
     ];
   });
+  // An external source contributes every one of its features to the layer.
+  const externalFeatures =
+    external === undefined ? [] : [{ source: external.id, geometry: 'point', min_zoom: minZoom, attributes }];
+  return [...osmFeatures, ...externalFeatures];
 }
 
 export function buildSchema(): Expr {
@@ -101,15 +107,21 @@ export function buildSchema(): Expr {
       '<a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>',
     args: {
       osm_path: { description: 'Input .osm.pbf file', default: 'data/input.osm.pbf' },
+      ...Object.fromEntries(
+        Object.values(EXTERNAL_SOURCES).map((s) => [s.arg, { description: `GeoJSON for ${s.id}`, default: s.defaultPath }]),
+      ),
       maxzoom: TILE_MAX_ZOOM,
     },
     sources: {
       osm: { type: 'osm', local_path: '${ args.osm_path }' },
+      ...Object.fromEntries(
+        Object.values(EXTERNAL_SOURCES).map((s) => [s.id, { type: 'geojson', local_path: `\${ args.${s.arg} }` }]),
+      ),
     },
     layers: ALL_LAYERS.map((layer) => ({ id: layer.key, features: layerFeatures(layer) })),
     examples: LAYER_EXAMPLES.map((example) => ({
       name: example.name,
-      input: { source: 'osm', geometry: example.geometry, tags: { ...example.tags } },
+      input: { source: example.source ?? 'osm', geometry: example.geometry, tags: { ...example.tags } },
       output: example.expect.map((feature) => ({
         layer: feature.layer,
         geometry: feature.geometry,

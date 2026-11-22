@@ -38,8 +38,8 @@ degrade outside the Netherlands.
    Country-specific sources are enrichment only. The data tiles are built from
    the whole planet, not a regional extract.
 4. **The server serves static files only.** Nothing runs per request. Allowed
-   on the server: a scheduled tile build, the n8n water-warning job (Phase 6),
-   and a static file server. A dynamic endpoint may be added only if it is
+   on the server: the scheduled tile build (which also refreshes the official
+   bathing-site data) and a static file server. No n8n (owner, 2026-11-22). A dynamic endpoint may be added only if it is
    cacheable at the edge and has been discussed first.
 5. **Map is the landing view.** Not a list, not a dashboard. The map renders
    immediately and fills in progressively.
@@ -68,7 +68,7 @@ Owner's server — Coolify, docker-compose.yml     Cloudflare free proxy in fron
   web   (Caddy, static only)
     /              the SPA (Vite build, baked into the image)
     /tiles/        pawpath-YYYYMMDD.pmtiles + manifest.json  ← shared volume
-    /data/         water-warnings.json (Phase 6, written by n8n)
+    /tiles/water-warnings.json   optional (Phase 6) — no source with clear terms yet
   tiles (builder) rebuilds into the shared volume when > 7 days old
 
 Browser
@@ -112,7 +112,7 @@ Accepted deliberately; do not "fix" these without discussion:
 - Hosting: **Docker via Coolify** on the owner's server, from this repository
   (`docker-compose.yml`): a Caddy `web` container serving static files and a
   `tiles` builder container, sharing one volume. Cloudflare free proxy in
-  front. Phase 6 adds a static JSON file written by n8n — no Worker, no D1.
+  front. No Worker, no database, no n8n.
   Details: `docs/deployment.md`.
 
 ### Basemap
@@ -138,8 +138,8 @@ their usage policy forbids it.
 | Weather, UV, radiation, rain | Open-Meteo Forecast | Global (KNMI/DWD high-res models where available) | Free tier **non-commercial**, < 10,000 calls/day, 5,000/h, 600/min, CC BY 4.0 | Conditions, paw model, walk window |
 | Air quality, pollen | Open-Meteo Air Quality (CAMS) | Global AQ; pollen Europe only | Same as above | AQI card |
 | Place search | Photon (komoot public instance), later self-hosted | Global | Fair use, throttled when heavy, no SLA | Search box |
-| Bathing water locations | EEA bathing water data | EU | Open data | Phase 6, water "monitored" state |
-| Live algae warnings | zwemwater.nl (NL), Länder portals (DE) | Fragmented | Per source; verify before use | Phase 6, via n8n → static JSON |
+| Bathing water sites | EEA ArcGIS service `BathingWater_Dyna_WM` (Bathing Water Directive) | EU + CH, AL (21,973 sites) | EEA re-use policy, attribution; newest classification season 2022 | Phase 6, baked into tiles each build — "monitored" state |
+| Live water warnings | **none usable yet** — see §12 Phase 6 | — | zwemwater.nl publishes no live API (monthly Excel for press use only); DE is per state | Optional `water-warnings.json`, format in `docs/water-warnings.md` |
 
 Staying inside the limits:
 - **Tiles and basemap** have no per-request limits; the edge cache and browser
@@ -207,6 +207,13 @@ largely absent from OSM (see Phase 8). Sparse is a finding, not a bug.
 
 Never render a green "safe" state for water. Only official bathing locations are
 monitored anywhere; the water a dog actually enters usually is not.
+
+Implemented (Phase 6): the water layer holds **only** EEA bathing sites (grey-blue
+waves badge); OSM water bodies are not in the tiles at all. The popup names the
+EU classification **with its season**, says when it is outside the bathing
+season ("not being monitored right now"), repeats "not a safety guarantee", and
+links the official profile for today's status. A site turns red (alert badge)
+only when `water-warnings.json` names its EEA id.
 
 ## 7. Conditions engine
 
@@ -396,9 +403,11 @@ from the live estimate, so it is a style update, not a re-fetch. Stretch goal:
 use shade polygons for the canopy fraction of paths that run through them.
 
 ### Phase 6 — Water warnings
-EEA bathing water locations baked into the tiles at build time; n8n on the
-owner's server scrapes live warnings and writes `water-warnings.json` as a
-static file. Three-state water rendering. No Worker, no database.
+EEA bathing water sites baked into the tiles at every build
+(`tools/tiles/fetch-bathing-waters.sh`); three-state water rendering; an
+optional runtime `water-warnings.json` turns named sites red. **No n8n**
+(owner, 2026-11-22): if a warnings source becomes usable, its connector runs
+as a step in the existing `tiles` container loop. No Worker, no database.
 
 ### Phase 7 — Public launch
 Ad slot component, error and offline states, performance pass, share links,
@@ -506,7 +515,9 @@ Constraints that keep this compatible with §2:
 - [x] Phase 5 — Area layers *(done 2026-11-22: every path coloured live by
       its own surface's paw estimate, paved solid / unpaved dashed; shade
       hatched; off-leash areas with fill, outline and badge)*
-- [ ] Phase 6 — Water warnings
+- [x] Phase 6 — Water warnings *(done 2026-11-22 for what exists: 21,973
+      official EU bathing sites in the tiles, three-state rendering, optional
+      warnings file. **No live warnings source** is usable yet — see below.)*
 - [ ] Phase 7 — Public launch
 - [ ] Phase 8 — Regional enrichment (post-launch)
 - [ ] Phase 9 — Route planner *(requested; approach proposed, see §11)*
@@ -580,7 +591,51 @@ Headless Chromium, Flevoland tiles, Almere centre at z16:
 - South of Almere at z15.5: 27 hatched shade areas, 12 dashed unpaved and 6
   solid paved paths; hatch distinct from the basemap's forest green.
 
+### Phase 6 — verification (2026-11-22)
+
+- `fetch-bathing-waters.sh`: 21,973 sites in 6 s (NL 740, DE 2,292), merged
+  from two pages; Flevoland tile build 4.2 MB (was 5.5 MB — the never-drawn
+  OSM water polygons are gone). `planetiler verify`: 34/34 incl. an EEA example.
+- Browser, Weerwater (Almere), z13.4: three official beaches render with the
+  neutral badge; the Stedenwijkstrand popup reads "Official bathing spot · EU
+  classification (2022 season): Good · Outside the bathing season: it is not
+  being monitored right now · … not a safety guarantee", with the official link.
+- With a **test** warnings file (deleted afterwards) naming Stedenwijkstrand:
+  that site alone turns red; popup "Blue-green algae · Keep your dog out of the
+  water", link to the notice. Without the file: no red anywhere.
+- `tiles` image rebuilt with `jq`; fetch script present.
+
 ### Decisions log
+
+**Phase 6 — water (2026-11-22)**
+
+- **Bathing sites come from the EEA's ArcGIS service**, fetched at build time
+  (not Discodata, which returned 403 to this environment). **Data quirk
+  handled:** the service holds a duplicate of every site with `countryCode
+  'EU'`, all at one point in Slovenia (14.47 E, 46.27 N) — ~22,000 phantom
+  sites; filtered out. The newest classification season is read from the field
+  alias (2022) and stored per site, so the class is never shown without its
+  year. Fewer than 1,000 sites or any failure → the last good file is kept (or
+  an empty one); the tile build never fails because of the EEA.
+- **OSM water is gone from the tiles.** It could only ever be "candidate"
+  (never drawn, §6). `layers.ts` gained `externalSource`, the seam Phase 8
+  needs anyway; the generator adds the GeoJSON source to the schema.
+- **No live warnings source, and none scraped.** zwemwater.nl's "Data en API"
+  offers only a monthly Excel of past measures, licensed for press reporting,
+  without coordinates; the app's backend is undocumented and unlicensed. Berlin
+  (LAGeSo, cc-by-sa) documents a JSON API, but its URL could not be confirmed
+  and it covers one city. So the warnings path is built and tested
+  (`waterWarnings.ts`, `docs/water-warnings.md`) but nothing writes the file.
+  **Next step for the owner, if wanted:** ask zwemwater.nl / Rijkswaterstaat
+  for reuse of live warning data with EEA ids; a connector would then be a
+  step in the `tiles` loop.
+- **No n8n** (owner): one less system. Anything scheduled runs in the `tiles`
+  container, which is defined in this repo.
+- **No OSM edit link on bathing sites** — they are EEA data; a decoded "OSM
+  id" would point at an unrelated object. The official profile link instead.
+- **EEA credited** in the map attribution next to OSM.
+- Known: bathing sites are EU-wide in every build, even a `nl-de` build — they
+  are tiny and harmless; clip later if it ever matters.
 
 **Phase 5 — area layers (2026-11-22)**
 
@@ -725,6 +780,7 @@ Headless Chromium, Flevoland tiles, Almere centre at z16:
   commercial use allowed. MapTiler stays an env-var away. No key is needed
   anywhere in the app.
 - **Phase 6 simplified**: n8n writes a static JSON; no Worker, no D1.
+  *Superseded 2026-11-22: no n8n either — see Phase 6 decisions.*
 - **Place search moves from Nominatim to Photon**; never per keystroke.
 
 **Sources review — 2026-11-20** (what is best per parameter; candidates are

@@ -37,6 +37,8 @@ export const safety = {
   neutral: '#8C8279',
   warning: '#C8553D',
   monitored: '#E9E4DA',
+  /** Badge for an official bathing site: neutral grey-blue, never green (§6). */
+  monitoredBadge: '#6F8A97',
 } as const;
 
 /** Paw-heat risk ramp for surfaces: hot → cool. */

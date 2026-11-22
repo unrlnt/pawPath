@@ -7,11 +7,17 @@ args:
   osm_path:
     description: Input .osm.pbf file
     default: data/input.osm.pbf
+  bathing_path:
+    description: GeoJSON for eea_bathing
+    default: data/bathing-waters.geojson
   maxzoom: 14
 sources:
   osm:
     type: osm
     local_path: ${ args.osm_path }
+  eea_bathing:
+    type: geojson
+    local_path: ${ args.bathing_path }
 layers:
   - id: shade
     features:
@@ -226,30 +232,27 @@ layers:
             tag_value: name
   - id: water
     features:
-      - source: osm
-        geometry: polygon
-        min_zoom: 11
-        include_when:
-          __any__:
-            - natural: water
-            - leisure: swimming_area
-            - natural: beach
-        attributes: &a3
-          - key: level
-            value:
-              - else: candidate
-          - key: name
-            tag_value: name
-          - key: water
-            tag_value: water
-      - source: osm
+      - source: eea_bathing
         geometry: point
         min_zoom: 11
-        include_when:
-          __any__:
-            - leisure: swimming_area
-            - natural: beach
-        attributes: *a3
+        attributes:
+          - key: level
+            value:
+              - else: monitored
+          - key: bwid
+            tag_value: bwid
+          - key: name
+            tag_value: name
+          - key: category
+            tag_value: category
+          - key: quality
+            tag_value: quality
+          - key: quality_year
+            tag_value: quality_year
+          - key: profile
+            tag_value: profile
+          - key: country
+            tag_value: country
   - id: benches
     features:
       - source: osm
@@ -555,28 +558,35 @@ examples:
         highway: footpath
         surface: asphalt
     output: []
-  - name: a pond is a candidate, never "safe"
+  - name: an ordinary pond is never drawn (unmonitored water, §6)
     input:
       source: osm
       geometry: polygon
       tags:
         natural: water
-    output:
-      - layer: water
-        geometry: polygon
-        tags:
-          level: candidate
-  - name: a swimming area node
+    output: []
+  - name: an OSM swimming area is not an official bathing site
     input:
       source: osm
       geometry: point
       tags:
         leisure: swimming_area
+    output: []
+  - name: an official EU bathing site is "monitored", never "safe"
+    input:
+      source: eea_bathing
+      geometry: point
+      tags:
+        bwid: NLBW07_VRL01
+        name: DE VROLIJK
+        category: Lake
+        quality: Excellent
+        quality_year: "2022"
     output:
       - layer: water
         geometry: point
         tags:
-          level: candidate
+          level: monitored
   - name: bench node
     input:
       source: osm

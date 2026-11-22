@@ -142,6 +142,19 @@ const OFF_LEASH_COLOURS: Partial<Record<FeatureLevel, string>> = {
   allowed_leash_unknown: safety.neutral,
 };
 
+/** Layer id of the bathing-site badges — MapView updates its icon when warnings load. */
+export const WATER_ICON_LAYER_ID = 'pawpath-water-icons';
+
+/** Red warning badge for warned site ids, the neutral "monitored" badge otherwise. */
+export function waterIcon(warnedIds: readonly string[]): ExpressionSpecification {
+  return [
+    'case',
+    ['in', ['coalesce', ['get', 'bwid'], ''], ['literal', [...warnedIds]]],
+    iconId('water', 'warning'),
+    iconId('water', 'monitored'),
+  ] as unknown as ExpressionSpecification;
+}
+
 /** Layers per toggle, bottom to top within each. */
 function specsFor(key: LayerKey, disabled: readonly FeatureLevel[]): LayerSpecification[] {
   const enabled = levelEnabled(disabled);
@@ -248,21 +261,13 @@ function specsFor(key: LayerKey, disabled: readonly FeatureLevel[]): LayerSpecif
         },
       ];
     }
-    case 'water':
-      // Unmonitored water draws NOTHING (§6). Only official bathing spots
-      // ('monitored') and warnings exist on the map, and both arrive in Phase 6.
-      return [
-        {
-          ...base,
-          id: id('fill'),
-          type: 'fill',
-          filter: all(isPolygon, ['in', ['get', 'level'], ['literal', ['monitored', 'warning']]]),
-          paint: {
-            'fill-color': byLevel({ warning: safety.warning, monitored: safety.monitored }, safety.monitored),
-            'fill-opacity': 0.6,
-          },
-        },
-      ];
+    case 'water': {
+      // Only official bathing sites exist in this layer (EEA); unmonitored
+      // water is never drawn (§6). A site turns red only when the runtime
+      // warnings file names it — `waterIcon(warnedIds)` swaps the image.
+      const spec = symbolLayer(id('icons'), base, 'water', enabled);
+      return [{ ...spec, layout: { ...spec.layout, 'icon-image': waterIcon([]), 'icon-allow-overlap': true } } as LayerSpecification];
+    }
     case 'benches':
       return [symbolLayer(id('icons'), base, 'benches', ['all'] as unknown as FilterSpecification)];
     case 'waste':

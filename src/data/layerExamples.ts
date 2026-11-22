@@ -22,6 +22,8 @@ export interface ExpectedFeature {
 
 export interface LayerExample {
   readonly name: string;
+  /** Build source; default OSM. Non-OSM examples run in `planetiler verify` only. */
+  readonly source?: 'osm' | 'eea_bathing';
   readonly geometry: InputGeometry;
   readonly tags: Readonly<Record<string, string>>;
   /** Every feature the element must produce. `[]` means it must be dropped. */
@@ -172,16 +174,23 @@ export const LAYER_EXAMPLES: readonly LayerExample[] = [
 
   /* -- Water --------------------------------------------------------------- */
   {
-    name: 'a pond is a candidate, never "safe"',
+    name: 'an ordinary pond is never drawn (unmonitored water, §6)',
     geometry: 'polygon',
     tags: { natural: 'water' },
-    expect: [{ layer: 'water', geometry: 'polygon', level: 'candidate' }],
+    expect: [],
   },
   {
-    name: 'a swimming area node',
+    name: 'an OSM swimming area is not an official bathing site',
     geometry: 'point',
     tags: { leisure: 'swimming_area' },
-    expect: [{ layer: 'water', geometry: 'point', level: 'candidate' }],
+    expect: [],
+  },
+  {
+    name: 'an official EU bathing site is "monitored", never "safe"',
+    source: 'eea_bathing',
+    geometry: 'point',
+    tags: { bwid: 'NLBW07_VRL01', name: 'DE VROLIJK', category: 'Lake', quality: 'Excellent', quality_year: '2022' },
+    expect: [{ layer: 'water', geometry: 'point', level: 'monitored' }],
   },
 
   /* -- Amenities ----------------------------------------------------------- */

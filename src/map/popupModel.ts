@@ -5,6 +5,8 @@
 
 import { LEVEL_LABELS } from '../data/levelLabels';
 import { isFeatureLevel, type FeatureLevel, type LayerKey } from '../data/layers';
+import { BATHING_SEASON_MONTHS } from '../config';
+import type { WaterWarning, WaterWarnings } from '../data/sources/waterWarnings';
 import type { PawBand } from '../lib/conditions/paw';
 import type { PawBySurface } from '../lib/conditions/pawBySurface';
 import { surfaceKindFor } from '../lib/surface';
@@ -19,6 +21,8 @@ export interface PopupModel {
   readonly note: string | undefined;
   /** "Something wrong? Fix it on OpenStreetMap." */
   readonly osmUrl: string | undefined;
+  /** Official page for non-OSM data ("today's status"). */
+  readonly sourceUrl?: string | undefined;
 }
 
 const OSM_TYPES: Readonly<Record<number, string>> = { 1: 'node', 2: 'way', 3: 'relation' };
@@ -104,6 +108,56 @@ const NOTES: Partial<Record<FeatureLevel, string>> = {
 export interface PopupContext {
   /** Live paw estimate per surface kind; absent until conditions load. */
   readonly pawBySurface?: PawBySurface;
+  /** Runtime water warnings by bathing-site id. */
+  readonly warnings?: WaterWarnings;
+  /** 1-based month "now", for the bathing-season note. Injectable for tests. */
+  readonly month?: number;
+}
+
+const WARNING_KIND_TEXT: Readonly<Record<WaterWarning['kind'], string>> = {
+  bluegreen_algae: 'Blue-green algae',
+  bacteria: 'Bacteria above the limit',
+  pollution: 'Pollution',
+  swimming_ban: 'Swimming ban',
+  other: 'Official warning',
+};
+
+/**
+ * Bathing sites (EEA): what is known, from whom and when — never "safe".
+ * A warning, when the runtime feed names this site, replaces the neutral state.
+ */
+function bathingSitePopup(properties: Record<string, unknown>, context: PopupContext): PopupModel {
+  const bwid = str(properties['bwid']);
+  const warning = bwid === undefined ? undefined : context.warnings?.byId.get(bwid);
+  const details: string[] = [];
+  const category = str(properties['category']);
+  if (category !== undefined) details.push(`Official EU bathing spot · ${category.toLowerCase()}`);
+  const quality = str(properties['quality']);
+  const year = str(properties['quality_year']);
+  if (quality !== undefined && year !== undefined) details.push(`EU classification (${year} season): ${quality}`);
+  const month = context.month ?? new Date().getMonth() + 1;
+  if (month < BATHING_SEASON_MONTHS.start || month > BATHING_SEASON_MONTHS.end) {
+    details.push('Outside the bathing season: it is not being monitored right now.');
+  }
+  if (warning !== undefined) {
+    details.unshift(warning.message);
+    if (warning.since !== undefined) details.push(`Since ${warning.since}`);
+  }
+  const profile = str(properties['profile']);
+  const sourceUrl = warning?.url ?? (profile !== undefined && /^https?:\/\//.test(profile) ? profile : undefined);
+  return {
+    icon: ICONS.water?.[warning === undefined ? 'monitored' : 'warning'],
+    title: warning === undefined ? 'Official bathing spot' : WARNING_KIND_TEXT[warning.kind],
+    name: str(properties['name']),
+    details,
+    note:
+      warning === undefined
+        ? 'No warning on record here — this is not a safety guarantee. Check today’s status at the official source before your dog goes in.'
+        : 'Keep your dog out of the water. Blue-green algae and bacteria can make dogs seriously ill.',
+    // Not OSM data, so no "fix it on OpenStreetMap" link: the official source instead.
+    osmUrl: undefined,
+    sourceUrl,
+  };
 }
 
 const LIVE_PAW_TITLE: Readonly<Record<PawBand, string>> = {
@@ -118,6 +172,7 @@ export function popupModel(
   featureId: unknown,
   context: PopupContext = {},
 ): PopupModel {
+  if (layer === 'water') return bathingSitePopup(properties, context);
   const rawLevel = str(properties['level']);
   const level = rawLevel !== undefined && isFeatureLevel(rawLevel) ? rawLevel : undefined;
   const icons = ICONS[layer];
