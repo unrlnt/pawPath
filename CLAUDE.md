@@ -103,6 +103,11 @@ Accepted deliberately; do not "fix" these without discussion:
   (Europe) plus small filtered parts. Only the `.pmtiles` stays afterwards.
   If even that is too much, build elsewhere and upload the result.
 - Tags not in the profile are not in the tiles. Adding a layer means a rebuild.
+- **The routing layer (Phase 9) is most of the size.** Flevoland: filtered
+  extract 11 MB of 39 MB, tiles 6.7 MB (4.2 MB without `walk`). Scaled by
+  extract size, rough estimates only: NL+DE tiles ~1–2 GB, planet ~10–15 GB
+  permanent, and the planet filter step needs ~20 GB more temporary space on
+  top of the largest download. Measure on the first real NL+DE build.
 
 ## 4. Stack
 
@@ -434,11 +439,11 @@ the paw/shade/off-leash profile along the way; save routes (localStorage) and
 reopen them; export GPX and share as a link. Optional "walk it" mode that
 follows your position along the route (no voice turn-by-turn at first).
 
-**Recommended approach, not yet decided — keeps §2.1/§2.4 intact:** routing in
+**Decided and built (2026-11-22) — keeps §2.1/§2.4 intact:** routing in
 the browser on a walking graph the weekly build produces anyway. The build
-writes small static graph chunks (walkable ways with surface, shade and
-`dog=*` attributes); the browser loads the chunks around the waypoints and
-runs A* with **dog-aware weights** (prefer cool surfaces, shade and off-leash
+writes a `walk` source-layer into the same `.pmtiles` (z14 only, every
+walkable way with `highway`, `surface`, `foot`, `access`, `dog`); the browser
+loads the tiles around the waypoints and runs A* with **dog-aware weights** (prefer cool surfaces, shade and off-leash
 areas; avoid hot asphalt in the heat). Zero server compute, works for any
 traffic, and it is the one thing no public router does. Dog walks are a few
 km, so the graph needed per route is small.
@@ -468,6 +473,21 @@ Recommended path, cheapest first:
    location for the "walk it" mode, or push reminders ("good walk window in
    30 min") justify it. Same code base; no second app.
 Decide after launch, with real usage.
+
+### Phase 12 — Report what's missing (idea, owner 2026-11-22)
+Let walkers report a bench, bin, bag dispenser or tap that is missing or
+gone. **Recommended, not built:** an anonymous **OSM Note** (`POST
+/api/0.6/notes`, no account, no key) at the tapped spot with a prefilled,
+editable text ("Dog-waste bag dispenser here — reported via PawPath"). OSM
+mappers then verify and add it; it reaches our tiles with the next weekly
+build. Keeps §2: no accounts, no server of ours, no key.
+- **Permanent features only.** Never temporary conditions — blue-green algae,
+  a broken tap today, a loose dog: OSM is not for transient state, and a
+  water warning from an unknown user would wrongly look official (§6).
+- Rate-limit in the browser (one note per minute), show the note link after
+  sending, and say plainly that it is public and anonymous.
+- Not editing OSM directly: that needs an OSM account and OAuth, and
+  unreviewed edits from a casual UI would harm the map we depend on.
 
 ### Phase 8 — Regional enrichment (post-launch)
 Official municipal/national sources added **on top of** OSM via build-time
@@ -520,9 +540,14 @@ Constraints that keep this compatible with §2:
       warnings file. **No live warnings source** is usable yet — see below.)*
 - [ ] Phase 7 — Public launch
 - [ ] Phase 8 — Regional enrichment (post-launch)
-- [ ] Phase 9 — Route planner *(requested; approach proposed, see §11)*
+- [x] Phase 9 — Route planner *(done 2026-11-22, pulled forward before
+      Phase 7: in-browser A* on the `walk` tile layer, dog- and heat-aware;
+      drag stops and the line, undo, round trip, save, share link, GPX,
+      "walk it". Verified in the browser at Almere.)*
 - [ ] Phase 10 — Community mirrors *(idea)*
 - [ ] Phase 11 — Mobile app *(idea: PWA first, Capacitor later)*
+- [ ] Phase 12 — Report what's missing *(idea: anonymous OSM Notes, permanent
+      features only)*
 
 ### Phase 2R — verification (2026-11-21)
 
@@ -605,7 +630,66 @@ Headless Chromium, Flevoland tiles, Almere centre at z16:
   water", link to the notice. Without the file: no red anywhere.
 - `tiles` image rebuilt with `jq`; fetch script present.
 
+### Phase 9 — verification (2026-11-22)
+
+Flevoland build with the `walk` layer: 6.7 MB (was 4.2 MB); `planetiler
+verify` 36/36. `npm run tiles:route-check` around Almere centre (9 tiles):
+74,676 nodes, 88,953 edges, **largest component 99.4 %**, loaded in 0.25 s,
+a 5.2 km route planned in 45–60 ms.
+
+Headless Chromium, Almere centre, z14.6:
+- Two taps → 650 m, about 10 min, profile bar and legend; share link in the
+  address bar. A stop in the Weerwater lake: "Stop 2 is too far from any
+  path" (correct refusal).
+- Dragging the route line → a third stop where it was released, 930 m;
+  dragging that stop → 570 m; Undo → 930 m; Round trip → 1.6 km "back to
+  the start". Saved as "Weerwater loop"; GPX download with 119 points.
+- Fresh page: My walks → reopen → same 1.6 km route. Fresh page with only the
+  share link → planner opens on the same route, camera fitted.
+- Simulated hot afternoon (31 °C, 900 W/m²): "20 m too hot for paws now · 90 m
+  warm"; in the Node check the second test route's unpaved share rose from
+  413 m to 1,092 m.
+- No page errors (Open-Meteo answered 429 to this sandbox in one run: its
+  per-IP limit, shared by the whole cloud host; not our traffic).
+
 ### Decisions log
+
+**Phase 9 — route planner (2026-11-22)**
+
+- **The graph is a tile layer, not a separate file.** `walk` (z14, never
+  simplified, `min_size 0`) sits in the same `.pmtiles`, so the build,
+  hosting, caching and versioning are unchanged. Every walkable highway is in
+  the osmium filter now, which is most of the size increase.
+- **Topology from the tile grid.** Coordinates stay integers on the global z14
+  grid (`tileX × extent + x`): a vertex shared by two tiles has the same key
+  in both, so tiles stitch exactly with no float tolerance; duplicate
+  segments from the tile buffers are dropped.
+- **Dog-aware cost** (`src/lib/routing/cost.ts`, factors in `config.ts`):
+  never through `foot=no`, private/no access (unless `foot=yes`) or `dog=no`;
+  paths 1, streets 1.25, tertiary 2, secondary/primary 3.5; off-leash 0.85;
+  with live weather, caution ×1.8 and danger ×4 by the path's own surface.
+  **Unmapped surface gets half the asphalt penalty** in the heat — without
+  it the first test route escaped onto 4.7 km of untagged (often paved) ways.
+- **Snap to the main network** when it is within 250 m: the first browser run
+  snapped a via point onto a 2-node courtyard footway and found no route.
+- **No routing without the tiles nearby**: at most 64 z14 tiles per route
+  (`ROUTE_MAX_TILES`), so a walk of a few km; longer gets a plain message.
+- **State is URL + localStorage only**: the share link is
+  `#route=lat,lng;…[;loop]` (validated, ≤ 30 stops), saved walks are in
+  `pawpath.routes.v1` (≤ 50). No accounts (§2.2).
+- **Editing**: tap the map to add a stop, drag a stop to move it, tap it to
+  remove it, press-and-drag the line to add a via point where it is
+  released (inserted between the stops it sits between). A release outside
+  the map cancels the drag. Undo covers every edit.
+- **Profile**: with weather, metres too hot / warm / kind to paws now plus
+  paved/unpaved; without weather, paved / unpaved / not mapped — never a
+  heat claim without weather.
+- **"Walk it"** uses `watchPosition` only while on, follows the walker, shows
+  distance left and "off the route by …" beyond 40 m. No turn-by-turn.
+- **Not done**: amenities along the route (benches, bins, water near it) and
+  shade along the route (the stretch goal from Phase 5) — both candidates.
+- **OSM write-backs** recorded as Phase 12: anonymous OSM Notes for permanent
+  features only, never algae or other temporary states.
 
 **Phase 6 — water (2026-11-22)**
 

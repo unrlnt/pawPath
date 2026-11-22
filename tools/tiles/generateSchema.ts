@@ -17,7 +17,14 @@ import { fileURLToPath } from 'node:url';
 import { stringify } from 'yaml';
 
 import { APP_NAME, LAYER_MIN_ZOOM, TILE_MAX_ZOOM } from '../../src/config';
-import { LAYER_EXAMPLES } from '../../src/data/layerExamples';
+import { LAYER_EXAMPLES, type LayerExample } from '../../src/data/layerExamples';
+import {
+  ALL_WALK_HIGHWAYS,
+  WALK_GRAPH_ZOOM,
+  WALK_LAYER,
+  WALK_TAGS,
+  isWalkable,
+} from '../../src/data/walkGraph';
 import {
   ALL_LAYERS,
   EXTERNAL_SOURCES,
@@ -97,6 +104,43 @@ function layerFeatures(layer: LayerDefinition): Expr[] {
   return [...osmFeatures, ...externalFeatures];
 }
 
+/**
+ * The routing graph: every walkable line, at z14 only, never simplified and
+ * never dropped for being short — junctions must survive intact (Phase 9).
+ */
+function walkLayer(): Expr {
+  return {
+    id: WALK_LAYER,
+    features: [
+      {
+        source: 'osm',
+        geometry: 'line',
+        min_zoom: WALK_GRAPH_ZOOM,
+        include_when: { highway: [...ALL_WALK_HIGHWAYS] },
+        tolerance_at_max_zoom: 0,
+        min_size_at_max_zoom: 0,
+        attributes: WALK_TAGS.map((tag) => ({ key: tag, tag_value: tag })),
+      },
+    ],
+  };
+}
+
+/** Schema-only examples for the routing graph (checked by `planetiler verify`). */
+const WALK_EXAMPLES: readonly LayerExample[] = [
+  {
+    name: 'an untagged footway is in the routing graph only',
+    geometry: 'line',
+    tags: { highway: 'footway' },
+    expect: [],
+  },
+  {
+    name: 'a motorway is never walkable',
+    geometry: 'line',
+    tags: { highway: 'motorway' },
+    expect: [],
+  },
+];
+
 export function buildSchema(): Expr {
   return {
     schema_name: APP_NAME,
@@ -118,16 +162,28 @@ export function buildSchema(): Expr {
         Object.values(EXTERNAL_SOURCES).map((s) => [s.id, { type: 'geojson', local_path: `\${ args.${s.arg} }` }]),
       ),
     },
-    layers: ALL_LAYERS.map((layer) => ({ id: layer.key, features: layerFeatures(layer) })),
-    examples: LAYER_EXAMPLES.map((example) => ({
-      name: example.name,
-      input: { source: example.source ?? 'osm', geometry: example.geometry, tags: { ...example.tags } },
-      output: example.expect.map((feature) => ({
+    layers: [
+      ...ALL_LAYERS.map((layer) => ({ id: layer.key, features: layerFeatures(layer) })),
+      walkLayer(),
+    ],
+    examples: [...LAYER_EXAMPLES, ...WALK_EXAMPLES].map((example) => {
+      const expected = example.expect.map((feature) => ({
         layer: feature.layer,
         geometry: feature.geometry,
         ...(feature.level === undefined ? {} : { tags: { level: feature.level } }),
-      })),
-    })),
+      }));
+      // Every walkable OSM line also lands in the routing graph; adding that
+      // here keeps each example's expected output complete and exact.
+      const walk =
+        (example.source ?? 'osm') === 'osm' && example.geometry === 'line' && isWalkable(example.tags)
+          ? [{ layer: WALK_LAYER, geometry: 'line' }]
+          : [];
+      return {
+        name: example.name,
+        input: { source: example.source ?? 'osm', geometry: example.geometry, tags: { ...example.tags } },
+        output: [...expected, ...walk],
+      };
+    }),
   };
 }
 
@@ -163,6 +219,8 @@ export function osmiumFilters(): string[] {
       }
     }
   }
+  // The routing graph needs every walkable highway, tagged or not.
+  filters.add(`nwr/highway=${ALL_WALK_HIGHWAYS.join(',')}`);
   return [...filters].sort();
 }
 

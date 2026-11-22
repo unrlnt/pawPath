@@ -314,6 +314,43 @@ layers:
             tag_value: bottle
           - key: dog
             tag_value: dog
+  - id: walk
+    features:
+      - source: osm
+        geometry: line
+        min_zoom: 14
+        include_when:
+          highway:
+            - path
+            - footway
+            - pedestrian
+            - track
+            - bridleway
+            - living_street
+            - residential
+            - service
+            - unclassified
+            - cycleway
+            - steps
+            - tertiary
+            - tertiary_link
+            - secondary
+            - secondary_link
+            - primary
+            - primary_link
+        tolerance_at_max_zoom: 0
+        min_size_at_max_zoom: 0
+        attributes:
+          - key: highway
+            tag_value: highway
+          - key: surface
+            tag_value: surface
+          - key: foot
+            tag_value: foot
+          - key: access
+            tag_value: access
+          - key: dog
+            tag_value: dog
 examples:
   - name: dog=unleashed area is off-leash
     input:
@@ -383,6 +420,8 @@ examples:
         geometry: line
         tags:
           level: prohibited
+      - layer: walk
+        geometry: line
   - name: dog=yes is NEVER off-leash
     input:
       source: osm
@@ -510,6 +549,8 @@ examples:
         geometry: line
         tags:
           level: high
+      - layer: walk
+        geometry: line
   - name: compacted path is mid paw risk
     input:
       source: osm
@@ -522,6 +563,8 @@ examples:
         geometry: line
         tags:
           level: mid
+      - layer: walk
+        geometry: line
   - name: grass track is low paw risk
     input:
       source: osm
@@ -534,6 +577,8 @@ examples:
         geometry: line
         tags:
           level: low
+      - layer: walk
+        geometry: line
   - name: a motorway surface is irrelevant
     input:
       source: osm
@@ -549,7 +594,9 @@ examples:
       tags:
         highway: path
         surface: moon_dust
-    output: []
+    output:
+      - layer: walk
+        geometry: line
   - name: highway types are matched exactly (footpath is not path)
     input:
       source: osm
@@ -678,4 +725,20 @@ examples:
       geometry: point
       tags:
         shop: bakery
+    output: []
+  - name: an untagged footway is in the routing graph only
+    input:
+      source: osm
+      geometry: line
+      tags:
+        highway: footway
+    output:
+      - layer: walk
+        geometry: line
+  - name: a motorway is never walkable
+    input:
+      source: osm
+      geometry: line
+      tags:
+        highway: motorway
     output: []

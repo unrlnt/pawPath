@@ -35,8 +35,13 @@ import {
   ZoomHint,
   layersAwaitingZoom,
 } from './Chrome';
+import RoutePanel, { SavedRoutesSheet } from '../route/RoutePanel';
+import { useRoutePlanner } from '../route/useRoutePlanner';
+import { useWatchPosition } from '../route/useWatchPosition';
+import { progressAlong } from '../../lib/routing/edit';
+import type { LngLat } from '../../lib/routing/route';
 import FilterSheet from './FilterSheet';
-import MapView, { type Viewport } from './MapView';
+import MapView, { type RouteOverlay, type Viewport } from './MapView';
 import SearchBox from './SearchBox';
 import { useGeolocation } from './useGeolocation';
 
@@ -99,6 +104,58 @@ export default function MapPage() {
   // Recomputed only when the current hour changes, not on every render.
   const currentHour = conditions.status === 'ready' ? conditions.summary.current.hour : undefined;
   const paws = useMemo(() => (currentHour === undefined ? undefined : pawBySurface(currentHour)), [currentHour]);
+
+  // Route planner (Phase 9).
+  const planner = useRoutePlanner(tilesUrl, paws);
+  const [walking, setWalking] = useState(false);
+  const [savedOpen, setSavedOpen] = useState(false);
+  const [fit, setFit] = useState<{ key: number; bounds: [LngLat, LngLat] } | undefined>(undefined);
+  const watch = useWatchPosition(walking && planner.active);
+  const ready = planner.status.kind === 'ready' ? planner.status.result : undefined;
+  const progress = useMemo(
+    () => (walking && ready !== undefined && watch.position !== undefined ? progressAlong(ready.line, watch.position) : undefined),
+    [walking, ready, watch.position],
+  );
+  // Follow the walker.
+  useEffect(() => {
+    if (watch.position !== undefined) setCentre({ lat: watch.position[1], lng: watch.position[0] });
+  }, [watch.position]);
+  useEffect(() => {
+    if (!planner.active) setWalking(false);
+  }, [planner.active]);
+
+  const fitTo = useCallback((points: readonly LngLat[]) => {
+    if (points.length === 0) return;
+    const lngs = points.map((p) => p[0]);
+    const lats = points.map((p) => p[1]);
+    setFit((f) => ({
+      key: (f?.key ?? 0) + 1,
+      bounds: [
+        [Math.min(...lngs), Math.min(...lats)],
+        [Math.max(...lngs), Math.max(...lats)],
+      ],
+    }));
+  }, []);
+  // A shared link opens on its route.
+  useEffect(() => {
+    if (planner.active && planner.waypoints.length > 0) fitTo(planner.waypoints);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const routeOverlay = useMemo<RouteOverlay | undefined>(
+    () =>
+      planner.active
+        ? {
+            waypoints: planner.waypoints,
+            segments: ready?.segments ?? [],
+            onAdd: planner.addWaypoint,
+            onMove: planner.moveWaypoint,
+            onRemove: planner.removeWaypoint,
+            onInsert: planner.insertVia,
+          }
+        : undefined,
+    [planner.active, planner.waypoints, ready, planner.addWaypoint, planner.moveWaypoint, planner.removeWaypoint, planner.insertVia],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -164,7 +221,11 @@ export default function MapPage() {
           disabledLevels={disabledLevels}
           pawBySurface={paws}
           warnings={warnings}
-          userPosition={geolocation.position ?? pin}
+          userPosition={
+            watch.position !== undefined ? { lat: watch.position[1], lng: watch.position[0] } : (geolocation.position ?? pin)
+          }
+          route={routeOverlay}
+          fit={fit}
           onViewportChange={setViewport}
           onDropPin={(position) => {
             setPin(position);
@@ -194,21 +255,55 @@ export default function MapPage() {
           {geolocation.message !== '' ? <Banner tone="info">{geolocation.message}</Banner> : null}
         </div>
 
-        <div className="pointer-events-none absolute bottom-24 right-2 z-20 flex flex-col gap-2">
-          <ControlButton
-            label={searchOpen ? 'Close search' : 'Search for a place'}
-            onClick={() => setSearchOpen((open) => !open)}
-          >
-            {searchOpen ? '✕' : '🔍'}
-          </ControlButton>
-          <ControlButton label="Recentre on me" onClick={recentre}>
-            ◎
-          </ControlButton>
+        <div className="pointer-events-none absolute inset-x-0 bottom-8 z-20 flex flex-col gap-2">
+          <div className="pointer-events-none mr-2 flex flex-col gap-2 self-end">
+            <ControlButton
+              label={searchOpen ? 'Close search' : 'Search for a place'}
+              onClick={() => setSearchOpen((open) => !open)}
+            >
+              {searchOpen ? '✕' : '🔍'}
+            </ControlButton>
+            <ControlButton label="Recentre on me" onClick={recentre}>
+              ◎
+            </ControlButton>
+          </div>
+          {planner.active ? (
+            <RoutePanel
+              planner={planner}
+              walking={walking}
+              progress={progress}
+              walkError={watch.error}
+              onToggleWalk={() => setWalking((w) => !w)}
+              onShowSaved={() => setSavedOpen(true)}
+            />
+          ) : (
+            <div className="pointer-events-auto mx-2 flex">
+              <button
+                type="button"
+                onClick={planner.start}
+                className="flex min-h-[44px] items-center gap-2 rounded-full bg-terracotta px-4 font-display text-base text-cream shadow-soft active:bg-terracottaDeep"
+              >
+                <span aria-hidden>🐾</span> Plan a walk
+              </button>
+            </div>
+          )}
+          {walking ? null : (
+            <LayerToggles enabled={enabled} onToggle={toggleLayer} onOpenFilters={() => setFiltersOpen(true)} />
+          )}
         </div>
 
-        <div className="pointer-events-none absolute inset-x-0 bottom-8 z-20">
-          <LayerToggles enabled={enabled} onToggle={toggleLayer} onOpenFilters={() => setFiltersOpen(true)} />
-        </div>
+        {savedOpen ? (
+          <SavedRoutesSheet
+            saved={planner.saved}
+            onOpen={(route) => {
+              planner.open(route);
+              setSavedOpen(false);
+              fitTo(route.waypoints);
+            }}
+            onDelete={planner.remove}
+            onClose={() => setSavedOpen(false)}
+          />
+        ) : null}
 
         {filtersOpen ? (
           <FilterSheet

@@ -10,35 +10,14 @@
  * tile otherwise (the table says which).
  */
 
-import { open } from 'node:fs/promises';
 import { gunzipSync } from 'node:zlib';
 
 import { VectorTile } from '@mapbox/vector-tile';
 import { PbfReader as Pbf } from 'pbf';
-import { PMTiles, type RangeResponse, type Source } from 'pmtiles';
+import { PMTiles } from 'pmtiles';
 
 import { ALL_LAYERS } from '../../src/data/layers';
-
-/** Reads byte ranges from a local file, which is all PMTiles needs. */
-class FileSource implements Source {
-  constructor(private readonly path: string) {}
-
-  getKey(): string {
-    return this.path;
-  }
-
-  async getBytes(offset: number, length: number): Promise<RangeResponse> {
-    const handle = await open(this.path, 'r');
-    try {
-      const buffer = Buffer.alloc(length);
-      const { bytesRead } = await handle.read(buffer, 0, length, offset);
-      const data = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + bytesRead);
-      return { data };
-    } finally {
-      await handle.close();
-    }
-  }
-}
+import { FileSource } from './lib/fileSource';
 
 const KM_PER_DEGREE_LAT = 111.32;
 

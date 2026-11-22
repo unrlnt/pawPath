@@ -335,6 +335,31 @@ export const AD_SLOT_HEIGHT_PX = 50;
  * localStorage keys. Bump a version suffix to reset a changed value.
  * ------------------------------------------------------------------ */
 
+// ---------------------------------------------------------------------------
+// Route planner (Phase 9) — routing runs in the browser on the `walk` layer.
+// ---------------------------------------------------------------------------
+
+/** Walking pace for the time estimate, km/h — dog walks are sniff-paced. */
+export const ROUTE_WALK_KMH = 4;
+/** A waypoint further than this from any path cannot be snapped. */
+export const ROUTE_MAX_SNAP_M = 250;
+/** Graph tiles loaded around the waypoints' bounding box, metres. */
+export const ROUTE_TILE_MARGIN_M = 800;
+/** Upper bound on graph tiles per route (~1.5 km each at 52° N). */
+export const ROUTE_MAX_TILES = 64;
+/** At most this many waypoints per route (also the share-link limit). */
+export const ROUTE_MAX_WAYPOINTS = 30;
+/** Saved routes kept in localStorage. */
+export const ROUTE_MAX_SAVED = 50;
+/** Cost per metre by highway class: 1 = preferred. */
+export const ROUTE_HIGHWAY_FACTOR = { preferred: 1, normal: 1.25, tertiary: 2, major: 3.5, unknown: 1.5 } as const;
+/** Cost multiplier for surfaces in each live paw band. */
+export const ROUTE_HEAT_FACTOR = { fine: 1, caution: 1.8, danger: 4 } as const;
+/** Bonus for explicitly off-leash ways (dog=unleashed/designated). */
+export const ROUTE_OFF_LEASH_FACTOR = 0.85;
+/** Share of the asphalt heat penalty applied to ways with no mapped surface. */
+export const ROUTE_UNKNOWN_SURFACE_HEAT_SHARE = 0.5;
+
 export const STORAGE_KEYS = {
   lastLocation: 'pawpath.lastLocation.v1',
   disclaimerAccepted: 'pawpath.disclaimer.v1',
@@ -343,4 +368,5 @@ export const STORAGE_KEYS = {
   conditionsCard: 'pawpath.conditionsCard.v1',
   /** Prefix: one entry per grid cell, `${prefix}${lat},${lng}`. */
   conditionsCachePrefix: 'pawpath.conditions.v1:',
+  savedRoutes: 'pawpath.routes.v1',
 } as const;

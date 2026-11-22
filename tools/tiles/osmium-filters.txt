@@ -11,6 +11,7 @@ nwr/dog=leashed
 nwr/dog=no
 nwr/dog=unleashed
 nwr/dog=yes
+nwr/highway=path,footway,pedestrian,track,bridleway,living_street,residential,service,unclassified,cycleway,steps,tertiary,tertiary_link,secondary,secondary_link,primary,primary_link
 nwr/highway=path,footway,track,pedestrian,cycleway,steps,living_street,residential,service,unclassified
 nwr/landuse=forest
 nwr/leisure=dog_park
