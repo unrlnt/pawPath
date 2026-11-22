@@ -126,6 +126,31 @@ export function drawBadge(spec: IconSpec, pixelRatio: number): ImageData {
   return ctx.getImageData(0, 0, size, size);
 }
 
+/** Hatch patterns for shade, by level (Phase 5). */
+export const HATCH = { dense: 'pp-hatch-dense', medium: 'pp-hatch-medium' } as const;
+
+/** A seamless diagonal hatch tile. */
+function drawHatch(spacingPx: number, pixelRatio: number): ImageData {
+  const size = Math.round(spacingPx * pixelRatio);
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (ctx === null) throw new Error('2D canvas unavailable');
+  ctx.strokeStyle = palette.sageDeep;
+  ctx.globalAlpha = 0.55;
+  ctx.lineWidth = 1.6 * pixelRatio;
+  ctx.lineCap = 'square';
+  // Three strokes so the diagonal continues across tile edges.
+  for (const offset of [-size, 0, size]) {
+    ctx.beginPath();
+    ctx.moveTo(offset, size);
+    ctx.lineTo(offset + size, 0);
+    ctx.stroke();
+  }
+  return ctx.getImageData(0, 0, size, size);
+}
+
 /** Adds every PawPath icon to the map's style. Idempotent; call after each style load. */
 export function registerIcons(map: MapLibreMap): void {
   const pixelRatio = Math.max(2, Math.ceil(window.devicePixelRatio || 1));
@@ -136,4 +161,6 @@ export function registerIcons(map: MapLibreMap): void {
       map.addImage(id, drawBadge(spec, pixelRatio), { pixelRatio });
     }
   }
+  if (!map.hasImage(HATCH.dense)) map.addImage(HATCH.dense, drawHatch(7, pixelRatio), { pixelRatio });
+  if (!map.hasImage(HATCH.medium)) map.addImage(HATCH.medium, drawHatch(12, pixelRatio), { pixelRatio });
 }

@@ -74,3 +74,13 @@ export const SURFACE_VALUES_BY_RISK: Readonly<Record<'high' | 'mid' | 'low', rea
     }
     return groups;
   })();
+
+/** Every scored OSM surface value, grouped by paw-model kind (for style expressions). */
+export const SURFACE_VALUES_BY_KIND: Readonly<Record<PawSurfaceKind, readonly string[]>> = (() => {
+  const groups: Record<PawSurfaceKind, string[]> = { asphalt: [], concrete: [], sand: [], gravel: [], grass: [] };
+  for (const [value, kind] of Object.entries(SURFACE_ALIASES)) groups[kind].push(value);
+  return groups;
+})();
+
+/** Paved surfaces draw solid, unpaved ones dashed — material stays readable at any temperature. */
+export const PAVED_KINDS: readonly PawSurfaceKind[] = ['asphalt', 'concrete'];

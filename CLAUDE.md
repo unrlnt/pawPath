@@ -450,6 +450,16 @@ Open questions: trust (a shard can serve wrong data — sign manifests?),
 uptime (fall back to the main host), and versioning across shards. Not
 before launch; Cloudflare's free cache is likely enough until then.
 
+### Phase 11 — Mobile app (idea, owner 2026-11-22)
+Recommended path, cheapest first:
+1. **PWA** — installable from the browser, offline shell, cached tiles for the
+   last-viewed area. Almost free on this architecture (static files, no
+   accounts) and covers most of what an app store app would.
+2. **Capacitor wrapper** around the same build when store presence, background
+   location for the "walk it" mode, or push reminders ("good walk window in
+   30 min") justify it. Same code base; no second app.
+Decide after launch, with real usage.
+
 ### Phase 8 — Regional enrichment (post-launch)
 Official municipal/national sources added **on top of** OSM via build-time
 static GeoJSON. OSM remains the default and only source everywhere until then.
@@ -493,12 +503,15 @@ Constraints that keep this compatible with §2:
 - [x] Phase 4 — Symbol layers and filters *(done 2026-11-22: level-coded badge
       icons, filter sheet with per-level switches persisted, popups with exact
       values and an "edit on OpenStreetMap" link; verified in the browser)*
-- [ ] Phase 5 — Area layers
+- [x] Phase 5 — Area layers *(done 2026-11-22: every path coloured live by
+      its own surface's paw estimate, paved solid / unpaved dashed; shade
+      hatched; off-leash areas with fill, outline and badge)*
 - [ ] Phase 6 — Water warnings
 - [ ] Phase 7 — Public launch
 - [ ] Phase 8 — Regional enrichment (post-launch)
 - [ ] Phase 9 — Route planner *(requested; approach proposed, see §11)*
 - [ ] Phase 10 — Community mirrors *(idea)*
+- [ ] Phase 11 — Mobile app *(idea: PWA first, Capacitor later)*
 
 ### Phase 2R — verification (2026-11-21)
 
@@ -555,7 +568,36 @@ to the right OSM node. At z14.5, 12 dog-park features render; switching "Dog
 park" off in the filter sheet hides all 12, switching it on restores them, and
 the choice is stored. No page errors.
 
+### Phase 5 — verification (2026-11-22)
+
+Headless Chromium, Flevoland tiles, Almere centre at z16:
+- **Real weather (night)**: all 53 rendered paths green; tapping an asphalt
+  street: "Kind to paws right now · Paws now: about 6–12 °C in the sun".
+- **Simulated hot afternoon** (31 °C, 900 W/m², injected into the local
+  conditions cache — a rendering test, not real weather): asphalt and metal
+  paths terracotta, concrete and paving stones yellow, side by side; the
+  asphalt popup reads "Too hot for paws right now · about 49–55 °C".
+- South of Almere at z15.5: 27 hatched shade areas, 12 dashed unpaved and 6
+  solid paved paths; hatch distinct from the basemap's forest green.
+
 ### Decisions log
+
+**Phase 5 — area layers (2026-11-22)**
+
+- **Per-path paw colour is a style expression**, not data: `surfacePaint()`
+  maps each path's `surface` value to its kind and the kind to the live band
+  (`pawBySurface()` for the current hour, full sun), and MapView swaps it with
+  `setPaintProperty` when the hour changes. Without weather it falls back to
+  the static material risk. Hotter bands also draw wider (not colour alone).
+- **Paved solid, unpaved dashed** (two layers: `line-dasharray` is not
+  data-driven), so material stays readable when everything is cool at night.
+- **Popups for paths speak about now** ("Too hot for paws right now", with the
+  estimate range) and fall back to the material label without weather.
+- **Shade = light wash + diagonal hatch** (dense for forest/wood, wider for
+  scrub), tree rows as round dots; hatch tiles drawn at runtime like the icons.
+- **Not done (stretch)**: canopy fraction for paths running through shade
+  polygons — the per-path estimate assumes full sun, which is the safe side.
+- **Mobile app** recorded as Phase 11 (owner idea): PWA first, Capacitor later.
 
 **Phase 4 + owner feedback (2026-11-22)**
 

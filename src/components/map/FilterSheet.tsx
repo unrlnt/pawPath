@@ -121,6 +121,20 @@ export default function FilterSheet({
                   <span className="flex-1 font-bold text-ink">{layer.label}</span>
                   <Switch on={on} label={on ? 'shown' : 'hidden'} />
                 </button>
+                {layer.key === 'surface' ? (
+                  <p className="ml-10 text-xs text-inkSoft">
+                    Each path is coloured by how warm <em>its own</em> surface is for paws right now:{' '}
+                    <span className="font-bold text-sageDeep">green</span> kind,{' '}
+                    <span className="font-bold text-sunnyDeep">yellow</span> getting warm,{' '}
+                    <span className="font-bold text-terracottaDeep">terracotta</span> too hot. Solid lines are
+                    paved, dashed lines unpaved.
+                  </p>
+                ) : null}
+                {layer.key === 'shade' ? (
+                  <p className="ml-10 text-xs text-inkSoft">
+                    Hatched areas are woods and scrub; dotted lines are rows of trees.
+                  </p>
+                ) : null}
                 {layer.key === 'water' ? (
                   <p className="ml-10 text-xs text-inkSoft">
                     Official bathing spots and warnings arrive soon. Ordinary ponds and ditches are never

@@ -23,6 +23,7 @@ import { loadTilesManifest } from '../../data/sources/tilesManifest';
 import { isStoredLocation, readStored, writeStored } from '../../lib/storage';
 import ConditionsCard from '../conditions/ConditionsCard';
 import { useConditions } from '../conditions/useConditions';
+import { pawBySurface } from '../../lib/conditions/pawBySurface';
 import {
   AdSlot,
   Banner,
@@ -76,6 +77,9 @@ export default function MapPage() {
   const geolocation = useGeolocation();
   // Conditions where the user is, or else where they are looking.
   const conditions = useConditions(geolocation.position ?? viewport?.centre);
+  // Recomputed only when the current hour changes, not on every render.
+  const currentHour = conditions.status === 'ready' ? conditions.summary.current.hour : undefined;
+  const paws = useMemo(() => (currentHour === undefined ? undefined : pawBySurface(currentHour)), [currentHour]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -139,6 +143,7 @@ export default function MapPage() {
           tilesUrl={tilesUrl}
           enabledLayers={enabled}
           disabledLevels={disabledLevels}
+          pawBySurface={paws}
           userPosition={geolocation.position ?? pin}
           onViewportChange={setViewport}
           onDropPin={(position) => {

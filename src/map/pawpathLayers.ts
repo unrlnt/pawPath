@@ -16,7 +16,54 @@ import type {
 import { LAYER_MIN_ZOOM } from '../config';
 import { LAYER_KEYS, type FeatureLevel, type LayerKey } from '../data/layers';
 import { palette, pawRisk, safety } from '../styles/tokens';
-import { ICONS, iconId } from './icons';
+import type { PawBand } from '../lib/conditions/paw';
+import { PAVED_KINDS, SURFACE_VALUES_BY_KIND } from '../lib/surface';
+import type { PawSurfaceKind } from '../config';
+import { HATCH, ICONS, iconId } from './icons';
+
+const PAVED_VALUES: string[] = PAVED_KINDS.flatMap((kind) => [...SURFACE_VALUES_BY_KIND[kind]]);
+
+const BAND_COLOUR: Readonly<Record<PawBand, string>> = {
+  fine: pawRisk.low,
+  caution: pawRisk.mid,
+  danger: pawRisk.high,
+};
+
+/** Surface layer ids — MapView repaints exactly these when conditions change. */
+export const SURFACE_LAYER_IDS = ['pawpath-surface-paved', 'pawpath-surface-unpaved'] as const;
+
+/**
+ * Per-path colour and width from the live paw band of each path's OWN surface.
+ * Without live data, falls back to the static material risk (`level`).
+ * Hotter bands draw wider, so heat does not rely on colour alone.
+ */
+export function surfacePaint(
+  bands: Readonly<Record<PawSurfaceKind, PawBand>> | undefined,
+): { 'line-color': DataDrivenPropertyValueSpecification<string>; 'line-width': DataDrivenPropertyValueSpecification<number> } {
+  const width = (factor: number): ExpressionSpecification =>
+    ['interpolate', ['linear'], ['zoom'], 15, 2 * factor, 18, 6 * factor] as unknown as ExpressionSpecification;
+  if (bands === undefined) {
+    return { 'line-color': byLevel(pawRisk, palette.inkSoft), 'line-width': width(1) };
+  }
+  const kinds = Object.keys(SURFACE_VALUES_BY_KIND) as PawSurfaceKind[];
+  const colour = [
+    'match',
+    ['get', 'surface'],
+    ...kinds.flatMap((kind) => [[...SURFACE_VALUES_BY_KIND[kind]], BAND_COLOUR[bands[kind]]]),
+    palette.inkSoft,
+  ] as unknown as ExpressionSpecification;
+  const factorFor = (band: PawBand): number => (band === 'danger' ? 1.5 : band === 'caution' ? 1.2 : 1);
+  const lineWidth = [
+    'interpolate',
+    ['linear'],
+    ['zoom'],
+    15,
+    ['match', ['get', 'surface'], ...kinds.flatMap((k) => [[...SURFACE_VALUES_BY_KIND[k]], 2 * factorFor(bands[k])]), 2],
+    18,
+    ['match', ['get', 'surface'], ...kinds.flatMap((k) => [[...SURFACE_VALUES_BY_KIND[k]], 6 * factorFor(bands[k])]), 6],
+  ] as unknown as ExpressionSpecification;
+  return { 'line-color': colour, 'line-width': lineWidth };
+}
 
 export const PAWPATH_SOURCE_ID = 'pawpath';
 
@@ -104,6 +151,8 @@ function specsFor(key: LayerKey, disabled: readonly FeatureLevel[]): LayerSpecif
   switch (key) {
     case 'shade':
       return [
+        // A light wash plus a hatch, so our shade reads as "shade" and does
+        // not melt into the basemap's own forest green (Phase 5).
         {
           ...base,
           id: id('fill'),
@@ -111,7 +160,16 @@ function specsFor(key: LayerKey, disabled: readonly FeatureLevel[]): LayerSpecif
           filter: isPolygon,
           paint: {
             'fill-color': palette.sageDeep,
-            'fill-opacity': ['match', ['get', 'level'], 'dense', 0.36, 'medium', 0.22, 0.16],
+            'fill-opacity': ['match', ['get', 'level'], 'dense', 0.16, 0.1],
+          },
+        },
+        {
+          ...base,
+          id: id('hatch'),
+          type: 'fill',
+          filter: isPolygon,
+          paint: {
+            'fill-pattern': ['match', ['get', 'level'], 'dense', HATCH.dense, HATCH.medium],
           },
         },
         {
@@ -119,7 +177,14 @@ function specsFor(key: LayerKey, disabled: readonly FeatureLevel[]): LayerSpecif
           id: id('rows'),
           type: 'line',
           filter: isLine,
-          paint: { 'line-color': palette.sageDeep, 'line-opacity': 0.55, 'line-width': 4 },
+          // Round dots along the row: reads as a line of trees.
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: {
+            'line-color': palette.sageDeep,
+            'line-opacity': 0.8,
+            'line-width': ['interpolate', ['linear'], ['zoom'], 12, 3, 17, 8],
+            'line-dasharray': [0, 1.6],
+          },
         },
       ];
     case 'offLeash':
@@ -159,20 +224,30 @@ function specsFor(key: LayerKey, disabled: readonly FeatureLevel[]): LayerSpecif
           allowed_leash_unknown: 4,
         }),
       ];
-    case 'surface':
+    case 'surface': {
+      // Paved solid, unpaved dashed: the material stays readable whatever
+      // the temperature. Colour and width are replaced live by
+      // `surfacePaint(bands)` once conditions load (Phase 5).
+      const initial = surfacePaint(undefined);
       return [
         {
           ...base,
-          id: id('lines'),
+          id: id('paved'),
           type: 'line',
-          paint: {
-            'line-color': byLevel(pawRisk, palette.inkSoft),
-            'line-opacity': 0.85,
-            'line-width': ['interpolate', ['linear'], ['zoom'], 15, 2, 18, 6],
-          },
+          filter: ['in', ['get', 'surface'], ['literal', PAVED_VALUES]],
+          paint: { ...initial, 'line-opacity': 0.9 },
           layout: { 'line-cap': 'round', 'line-join': 'round' },
         },
+        {
+          ...base,
+          id: id('unpaved'),
+          type: 'line',
+          filter: ['!', ['in', ['get', 'surface'], ['literal', PAVED_VALUES]]],
+          paint: { ...initial, 'line-opacity': 0.9, 'line-dasharray': [2, 1.2] },
+          layout: { 'line-join': 'round' },
+        },
       ];
+    }
     case 'water':
       // Unmonitored water draws NOTHING (§6). Only official bathing spots
       // ('monitored') and warnings exist on the map, and both arrive in Phase 6.

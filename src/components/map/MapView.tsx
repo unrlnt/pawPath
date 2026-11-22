@@ -21,8 +21,9 @@ import {
 import { SOURCE_ATTRIBUTION } from '../../data/attribution';
 import { isLayerKey, type FeatureLevel, type LayerKey } from '../../data/layers';
 import { GLYPHS, registerIcons } from '../../map/icons';
-import { PAWPATH_SOURCE_ID, pawpathLayerSpecs } from '../../map/pawpathLayers';
-import { popupModel } from '../../map/popupModel';
+import type { PawBySurface } from '../../lib/conditions/pawBySurface';
+import { PAWPATH_SOURCE_ID, SURFACE_LAYER_IDS, pawpathLayerSpecs, surfacePaint } from '../../map/pawpathLayers';
+import { popupModel, type PopupContext } from '../../map/popupModel';
 import { warmBasemap } from '../../map/warmBasemap';
 import { palette } from '../../styles/tokens';
 
@@ -54,6 +55,8 @@ export interface MapViewProps {
   readonly enabledLayers: readonly LayerKey[];
   /** Levels switched off in the filter sheet (dog=yes until opted in). */
   readonly disabledLevels: readonly FeatureLevel[];
+  /** Live paw estimate per surface kind: recolours every path by its own surface. */
+  readonly pawBySurface: PawBySurface | undefined;
   readonly userPosition: { lat: number; lng: number } | undefined;
   readonly onViewportChange: (viewport: Viewport) => void;
   readonly onDropPin: (position: { lat: number; lng: number }) => void;
@@ -62,8 +65,13 @@ export interface MapViewProps {
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 /** Popup body built from DOM nodes and textContent only — OSM text is untrusted input. */
-function popupContent(layer: LayerKey, properties: Record<string, unknown>, featureId: unknown): HTMLElement {
-  const model = popupModel(layer, properties, featureId);
+function popupContent(
+  layer: LayerKey,
+  properties: Record<string, unknown>,
+  featureId: unknown,
+  context: PopupContext,
+): HTMLElement {
+  const model = popupModel(layer, properties, featureId, context);
   const root = document.createElement('div');
   root.className = 'max-w-[240px]';
 
@@ -128,6 +136,7 @@ export default function MapView({
   tilesUrl,
   enabledLayers,
   disabledLevels,
+  pawBySurface,
   userPosition,
   onViewportChange,
   onDropPin,
@@ -136,8 +145,8 @@ export default function MapView({
   const mapRef = useRef<MapLibreMap | null>(null);
   const styleReady = useRef(false);
   // Latest props for handlers registered once.
-  const latest = useRef({ tilesUrl, enabledLayers, disabledLevels, userPosition, onViewportChange, onDropPin });
-  latest.current = { tilesUrl, enabledLayers, disabledLevels, userPosition, onViewportChange, onDropPin };
+  const latest = useRef({ tilesUrl, enabledLayers, disabledLevels, pawBySurface, userPosition, onViewportChange, onDropPin });
+  latest.current = { tilesUrl, enabledLayers, disabledLevels, pawBySurface, userPosition, onViewportChange, onDropPin };
 
   /** Adds our source and layers if the style is ready and the URL known. Idempotent. */
   const syncPawpath = (map: MapLibreMap): void => {
@@ -158,6 +167,25 @@ export default function MapView({
         if ('filter' in spec && spec.filter !== undefined) map.setFilter(spec.id, spec.filter);
       }
     }
+    // Every path coloured by the live paw band of its own surface.
+    const paws = latest.current.pawBySurface;
+    const paint = surfacePaint(
+      paws === undefined
+        ? undefined
+        : {
+            asphalt: paws.asphalt.band,
+            concrete: paws.concrete.band,
+            sand: paws.sand.band,
+            gravel: paws.gravel.band,
+            grass: paws.grass.band,
+          },
+    );
+    for (const id of SURFACE_LAYER_IDS) {
+      if (map.getLayer(id) === undefined) continue;
+      map.setPaintProperty(id, 'line-color', paint['line-color']);
+      map.setPaintProperty(id, 'line-width', paint['line-width']);
+    }
+
     const enabled = new Set(latest.current.enabledLayers);
     for (const [key, ids] of Object.entries(IDS_BY_LAYER)) {
       const visibility = isLayerKey(key) && enabled.has(key) ? 'visible' : 'none';
@@ -273,7 +301,11 @@ export default function MapView({
       if (hit === undefined || layer === undefined || !isLayerKey(layer)) return;
       new maplibregl.Popup({ closeButton: false, maxWidth: '260px' })
         .setLngLat(event.lngLat)
-        .setDOMContent(popupContent(layer, hit.properties, hit.id))
+        .setDOMContent(
+          popupContent(layer, hit.properties, hit.id, {
+            ...(latest.current.pawBySurface === undefined ? {} : { pawBySurface: latest.current.pawBySurface }),
+          }),
+        )
         .addTo(map);
     });
 
@@ -316,7 +348,7 @@ export default function MapView({
     const map = mapRef.current;
     if (map !== null) syncPawpath(map);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tilesUrl, enabledLayers, disabledLevels]);
+  }, [tilesUrl, enabledLayers, disabledLevels, pawBySurface]);
 
   useEffect(() => {
     const map = mapRef.current;

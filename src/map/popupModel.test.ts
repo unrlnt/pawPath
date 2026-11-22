@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { pawBySurface } from '../lib/conditions/pawBySurface';
 import { osmUrlFor, popupModel } from './popupModel';
 
 describe('osmUrlFor', () => {
@@ -44,5 +45,19 @@ describe('popupModel', () => {
   it('ignores an unknown level instead of trusting it', () => {
     expect(popupModel('offLeash', { level: 'off_leash_please' }, 12).title).toBe('Dog rules');
     expect(popupModel('benches', {}, 12).title).toBe('Bench');
+  });
+});
+
+describe('live paw reading for paths (Phase 5)', () => {
+  const hot = { pawBySurface: pawBySurface({ airC: 30, shortwaveWm2: 900, windKmh: 3 }) };
+
+  it('calls an asphalt path too hot and a grass path kind, under the same sun', () => {
+    expect(popupModel('surface', { level: 'high', surface: 'asphalt' }, 22, hot).title).toBe('Too hot for paws right now');
+    expect(popupModel('surface', { level: 'low', surface: 'grass' }, 22, hot).title).toBe('Kind to paws right now');
+    expect(popupModel('surface', { level: 'high', surface: 'asphalt' }, 22, hot).details[0]).toMatch(/^Paws now: about \d+–\d+ °C/);
+  });
+
+  it('falls back to the material when no weather is loaded', () => {
+    expect(popupModel('surface', { level: 'high', surface: 'asphalt' }, 22).title).toBe('Hot surface (asphalt, concrete)');
   });
 });

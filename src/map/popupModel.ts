@@ -5,6 +5,9 @@
 
 import { LEVEL_LABELS } from '../data/levelLabels';
 import { isFeatureLevel, type FeatureLevel, type LayerKey } from '../data/layers';
+import type { PawBand } from '../lib/conditions/paw';
+import type { PawBySurface } from '../lib/conditions/pawBySurface';
+import { surfaceKindFor } from '../lib/surface';
 import { ICONS, type IconSpec } from './icons';
 
 export interface PopupModel {
@@ -98,15 +101,44 @@ const NOTES: Partial<Record<FeatureLevel, string>> = {
   monitored: 'An official bathing spot with no warning on record. This is not a safety guarantee.',
 };
 
-export function popupModel(layer: LayerKey, properties: Record<string, unknown>, featureId: unknown): PopupModel {
+export interface PopupContext {
+  /** Live paw estimate per surface kind; absent until conditions load. */
+  readonly pawBySurface?: PawBySurface;
+}
+
+const LIVE_PAW_TITLE: Readonly<Record<PawBand, string>> = {
+  fine: 'Kind to paws right now',
+  caution: 'Getting warm for paws',
+  danger: 'Too hot for paws right now',
+};
+
+export function popupModel(
+  layer: LayerKey,
+  properties: Record<string, unknown>,
+  featureId: unknown,
+  context: PopupContext = {},
+): PopupModel {
   const rawLevel = str(properties['level']);
   const level = rawLevel !== undefined && isFeatureLevel(rawLevel) ? rawLevel : undefined;
   const icons = ICONS[layer];
+  const details = detailsFor(layer, properties);
+  let title = level === undefined ? SINGULAR[layer] : LEVEL_LABELS[level];
+
+  // Paths: say what the surface is like for paws NOW, not just its material.
+  if (layer === 'surface' && context.pawBySurface !== undefined) {
+    const kind = surfaceKindFor(str(properties['surface']));
+    if (kind !== undefined) {
+      const paw = context.pawBySurface[kind];
+      title = LIVE_PAW_TITLE[paw.band];
+      details.unshift(`Paws now: about ${paw.lowC}–${paw.highC} °C in the sun (estimate)`);
+    }
+  }
+
   return {
     icon: (level === undefined ? undefined : icons?.[level]) ?? icons?.default,
-    title: level === undefined ? SINGULAR[layer] : LEVEL_LABELS[level],
+    title,
     name: str(properties['name']),
-    details: detailsFor(layer, properties),
+    details,
     note: level === undefined ? undefined : NOTES[level],
     osmUrl: osmUrlFor(featureId),
   };

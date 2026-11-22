@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { aqiBand, heatBand, notablePollen, uvBand } from './bands';
 import { pawBand, pawEstimate, pawSurfaceTempC } from './paw';
+import { pawBySurface } from './pawBySurface';
 import { rainOutlook } from './rainWindow';
 import { countriesAt, seasonalAdvisories, type SeasonalInput } from './seasonal';
 import { localDate, summarise } from './summary';
@@ -285,5 +286,20 @@ describe('pollen', () => {
   });
   it('is empty where CAMS has no pollen (outside Europe)', () => {
     expect(notablePollen({})).toEqual([]);
+  });
+});
+
+
+describe('paw estimate per surface (Phase 5)', () => {
+  it('makes asphalt hot while grass stays fine under the same sun', () => {
+    const paws = pawBySurface({ airC: 30, shortwaveWm2: 900, windKmh: 3 });
+    expect(paws.asphalt.band).toBe('danger');
+    expect(paws.grass.band).toBe('fine');
+    expect(paws.gravel.highC).toBeLessThan(paws.asphalt.highC);
+  });
+
+  it('is all fine without sun', () => {
+    const paws = pawBySurface({ airC: 12, shortwaveWm2: 0, windKmh: 10 });
+    expect(Object.values(paws).every((p) => p.band === 'fine')).toBe(true);
   });
 });
