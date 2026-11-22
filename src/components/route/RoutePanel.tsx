@@ -55,6 +55,11 @@ function ProfileBar({ result }: { result: Extract<RoutePlanner['status'], { kind
             {formatDistance(p.pavedM)} paved · {formatDistance(p.unpavedM)} unpaved
           </li>
         ) : null}
+        <li>
+          <span className="mr-1 inline-block h-2 w-3 rounded-full border-2 border-sageDeep" aria-hidden />
+          {p.shadeM >= 10 ? `${formatDistance(p.shadeM)} in shade` : 'no mapped shade'}
+          {p.denseShadeM >= 10 && p.denseShadeM < p.shadeM - 10 ? ` (${formatDistance(p.denseShadeM)} under trees)` : ''}
+        </li>
       </ul>
     </div>
   );

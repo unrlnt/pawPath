@@ -9,6 +9,8 @@
  * shared vertices. Duplicate edges from the overlap are dropped.
  */
 
+import { stretchShade, type ShadeLevel } from './shade';
+
 export type Tags = Readonly<Record<string, string>>;
 
 /** A line as decoded from one tile, in global grid units. */
@@ -21,6 +23,8 @@ export interface GraphEdge {
   readonly to: number;
   readonly lengthM: number;
   readonly tags: Tags;
+  /** Shade over this stretch; undefined = full sun (or no shade data). */
+  readonly shade?: ShadeLevel;
 }
 
 export interface WalkGraph {
@@ -53,7 +57,12 @@ export function haversineM(a: readonly [number, number], b: readonly [number, nu
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-export function buildGraph(lines: readonly GridLine[], zoom: number, extent: number): WalkGraph {
+export function buildGraph(
+  lines: readonly GridLine[],
+  zoom: number,
+  extent: number,
+  shade?: { readonly at: (gx: number, gy: number) => ShadeLevel | undefined; readonly sideReach: number },
+): WalkGraph {
   const nodeIndex = new Map<string, number>();
   const coords: [number, number][] = [];
   const edges: GraphEdge[][] = [];
@@ -86,8 +95,10 @@ export function buildGraph(lines: readonly GridLine[], zoom: number, extent: num
       const cb = coords[b];
       if (ca === undefined || cb === undefined) continue;
       const lengthM = haversineM(ca, cb);
-      edges[a]?.push({ to: b, lengthM, tags: line.tags });
-      edges[b]?.push({ to: a, lengthM, tags: line.tags });
+      const level = shade === undefined ? undefined : stretchShade(shade.at, p, q, shade.sideReach);
+      const extra = level === undefined ? {} : { shade: level };
+      edges[a]?.push({ to: b, lengthM, tags: line.tags, ...extra });
+      edges[b]?.push({ to: a, lengthM, tags: line.tags, ...extra });
     }
   }
   const { component, mainComponent } = components(edges);

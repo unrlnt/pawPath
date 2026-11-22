@@ -21,6 +21,9 @@ export interface RouteProfile {
   readonly pavedM: number;
   readonly unpavedM: number;
   readonly unknownSurfaceM: number;
+  /** Metres under any shade (forest, scrub, tree rows), and in dense shade. */
+  readonly shadeM: number;
+  readonly denseShadeM: number;
   /** False when routed without weather: `byBand` is then empty. */
   readonly heatKnown: boolean;
 }
@@ -29,6 +32,8 @@ export interface RouteSegment {
   readonly coords: readonly LngLat[];
   /** Live band of this stretch, or undefined when its surface is not mapped. */
   readonly band: PawBand | undefined;
+  /** Whether this stretch runs through shade. */
+  readonly shaded: boolean;
 }
 
 export type RouteResult =
@@ -44,7 +49,7 @@ export type RouteResult =
 
 function bandOf(edge: GraphEdge, context: CostContext): PawBand | undefined {
   const kind = surfaceKindFor(edge.tags['surface']);
-  return kind === undefined || context.pawBands === undefined ? undefined : context.pawBands[kind];
+  return kind === undefined || context.pawBands === undefined ? undefined : context.pawBands[edge.shade ?? 'sun'][kind];
 }
 
 export function planRoute(graph: WalkGraph, waypoints: readonly LngLat[], context: CostContext = {}): RouteResult {
@@ -56,7 +61,7 @@ export function planRoute(graph: WalkGraph, waypoints: readonly LngLat[], contex
     nodes.push(nearest.node);
   }
 
-  const cost = (edge: GraphEdge): number => edge.lengthM * edgeFactor(edge.tags, context);
+  const cost = (edge: GraphEdge): number => edge.lengthM * edgeFactor(edge.tags, context, edge.shade);
   const line: LngLat[] = [];
   const segments: RouteSegment[] = [];
   const byBand: Record<PawBand, number> = { fine: 0, caution: 0, danger: 0 };
@@ -64,6 +69,8 @@ export function planRoute(graph: WalkGraph, waypoints: readonly LngLat[], contex
   let pavedM = 0;
   let unpavedM = 0;
   let unknownSurfaceM = 0;
+  let shadeM = 0;
+  let denseShadeM = 0;
 
   for (let i = 1; i < nodes.length; i += 1) {
     const from = nodes[i - 1];
@@ -81,10 +88,13 @@ export function planRoute(graph: WalkGraph, waypoints: readonly LngLat[], contex
       const b = graph.coords[edge.to];
       if (a === undefined || b === undefined) return;
       const band = bandOf(edge, context);
+      const shaded = edge.shade !== undefined;
       const last = segments[segments.length - 1];
-      if (last !== undefined && last.band === band) (last.coords as LngLat[]).push(b);
-      else segments.push({ coords: [a, b], band });
+      if (last !== undefined && last.band === band && last.shaded === shaded) (last.coords as LngLat[]).push(b);
+      else segments.push({ coords: [a, b], band, shaded });
       lengthM += edge.lengthM;
+      if (shaded) shadeM += edge.lengthM;
+      if (edge.shade === 'dense') denseShadeM += edge.lengthM;
       if (band !== undefined) byBand[band] += edge.lengthM;
       const kind = surfaceKindFor(edge.tags['surface']);
       if (kind === undefined) unknownSurfaceM += edge.lengthM;
@@ -105,6 +115,8 @@ export function planRoute(graph: WalkGraph, waypoints: readonly LngLat[], contex
       pavedM,
       unpavedM,
       unknownSurfaceM,
+      shadeM,
+      denseShadeM,
       heatKnown: context.pawBands !== undefined,
     },
   };

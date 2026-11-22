@@ -355,6 +355,29 @@ export const ROUTE_MAX_SAVED = 50;
 export const ROUTE_HIGHWAY_FACTOR = { preferred: 1, normal: 1.25, tertiary: 2, major: 3.5, unknown: 1.5 } as const;
 /** Cost multiplier for surfaces in each live paw band. */
 export const ROUTE_HEAT_FACTOR = { fine: 1, caution: 1.8, danger: 4 } as const;
+/**
+ * Canopy fraction per shade level, fed into the paw model's shade factor
+ * (1 − 0.7 × canopy). Forest/wood dense, scrub medium, tree row light.
+ */
+export const SHADE_CANOPY_FRACTION = { sun: 0, light: 0.3, medium: 0.5, dense: 0.85 } as const;
+/**
+ * How far to each side of a path to look for woodland, metres. Woods are often
+ * mapped with paths as gaps between polygons: wooded on both sides = in the
+ * wood, on one side = forest edge (light shade).
+ */
+export const ROUTE_SHADE_SIDE_REACH_M = 8;
+/** A path within this distance of a tree row counts as lightly shaded, metres. */
+export const ROUTE_TREE_ROW_REACH_M = 10;
+/**
+ * Extra cost per metre in full sun, by felt temperature (°C, from): the route
+ * leans into shade as it gets warmer — heat stress is about the dog, not the
+ * path. Light shade (tree rows) pays half the extra. Checked high to low.
+ */
+export const ROUTE_SUN_FACTOR_BY_FELT_C = [
+  { fromC: DOG_HEAT_BANDS_C.veryHigh, factor: 1.6 },
+  { fromC: DOG_HEAT_BANDS_C.high, factor: 1.35 },
+  { fromC: DOG_HEAT_BANDS_C.moderate, factor: 1.15 },
+] as const;
 /** Bonus for explicitly off-leash ways (dog=unleashed/designated). */
 export const ROUTE_OFF_LEASH_FACTOR = 0.85;
 /** Share of the asphalt heat penalty applied to ways with no mapped surface. */

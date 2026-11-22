@@ -9,20 +9,30 @@
  */
 
 import type { PawBand } from '../conditions/paw';
+import type { PawBandsByExposure } from '../conditions/pawBySurface';
+import type { ShadeLevel } from './shade';
 import { surfaceKindFor } from '../surface';
 import {
   ROUTE_HEAT_FACTOR,
   ROUTE_HIGHWAY_FACTOR,
   ROUTE_OFF_LEASH_FACTOR,
+  ROUTE_SUN_FACTOR_BY_FELT_C,
   ROUTE_UNKNOWN_SURFACE_HEAT_SHARE,
-  type PawSurfaceKind,
 } from '../../config';
 import { WALK_HIGHWAYS } from '../../data/walkGraph';
 import type { Tags } from './graph';
 
 export interface CostContext {
-  /** Live paw band per surface kind; absent = weather unknown, ignore heat. */
-  readonly pawBands?: Readonly<Record<PawSurfaceKind, PawBand>>;
+  /** Live paw band per exposure and surface kind; absent = weather unknown, ignore heat. */
+  readonly pawBands?: PawBandsByExposure;
+  /** Felt temperature now, °C: drives the preference for shade. */
+  readonly feltC?: number;
+}
+
+/** Extra cost of full sun at this felt temperature (1 = none). */
+export function sunFactor(feltC: number | undefined): number {
+  if (feltC === undefined) return 1;
+  return ROUTE_SUN_FACTOR_BY_FELT_C.find((band) => feltC >= band.fromC)?.factor ?? 1;
 }
 
 export const FORBIDDEN = Number.POSITIVE_INFINITY;
@@ -40,7 +50,7 @@ const HEAT_FACTOR: Readonly<Record<PawBand, number>> = ROUTE_HEAT_FACTOR;
 export const MIN_EDGE_FACTOR = Math.min(F.preferred, F.normal) * ROUTE_OFF_LEASH_FACTOR;
 
 /** Cost multiplier for walking one metre of an edge with these tags. */
-export function edgeFactor(tags: Tags, context: CostContext = {}): number {
+export function edgeFactor(tags: Tags, context: CostContext = {}, shade?: ShadeLevel): number {
   if (tags['foot'] === 'no' || tags['access'] === 'private' || tags['access'] === 'no') {
     // An explicit foot=yes/designated overrides a general access=no.
     if (!(tags['foot'] === 'yes' || tags['foot'] === 'designated')) return FORBIDDEN;
@@ -52,10 +62,16 @@ export function edgeFactor(tags: Tags, context: CostContext = {}): number {
 
   const kind = surfaceKindFor(tags['surface']);
   if (context.pawBands !== undefined) {
-    if (kind !== undefined) factor *= HEAT_FACTOR[context.pawBands[kind]];
+    const bands = context.pawBands[shade ?? 'sun'];
+    if (kind !== undefined) factor *= HEAT_FACTOR[bands[kind]];
     // Unmapped surface: often paved in towns. Half the asphalt penalty, so a
     // known-cool path wins but an unmapped one still beats known-hot asphalt.
-    else factor *= 1 + (HEAT_FACTOR[context.pawBands.asphalt] - 1) * ROUTE_UNKNOWN_SURFACE_HEAT_SHARE;
+    else factor *= 1 + (HEAT_FACTOR[bands.asphalt] - 1) * ROUTE_UNKNOWN_SURFACE_HEAT_SHARE;
   }
+  // Shade for the dog itself, whatever the surface: full sun pays the extra,
+  // a tree row half of it, forest and scrub none.
+  const sun = sunFactor(context.feltC);
+  if (shade === undefined) factor *= sun;
+  else if (shade === 'light') factor *= 1 + (sun - 1) / 2;
   return factor;
 }

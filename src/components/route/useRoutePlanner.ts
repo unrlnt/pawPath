@@ -8,7 +8,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ROUTE_MAX_SAVED, ROUTE_MAX_WAYPOINTS, STORAGE_KEYS } from '../../config';
 import { WalkGraphSource } from '../../data/sources/walkGraphSource';
-import type { PawBySurface } from '../../lib/conditions/pawBySurface';
+import { pawBandsByExposure } from '../../lib/conditions/pawBySurface';
+import type { HourPoint } from '../../lib/conditions/types';
 import { bestInsertIndex } from '../../lib/routing/edit';
 import { decodeRouteHash, encodeRouteHash, isSavedRouteList, type SavedRoute } from '../../lib/routing/io';
 import { planRoute, type LngLat, type RouteResult } from '../../lib/routing/route';
@@ -34,7 +35,7 @@ interface PlannerState {
 
 const EMPTY: PlannerState = { waypoints: [], roundTrip: false };
 
-export function useRoutePlanner(tilesUrl: string | undefined, paws: PawBySurface | undefined) {
+export function useRoutePlanner(tilesUrl: string | undefined, hour: HourPoint | undefined) {
   // A shared link opens the planner with its route.
   const fromHash = useMemo(() => decodeRouteHash(window.location.hash), []);
   const [active, setActive] = useState(fromHash !== undefined);
@@ -101,18 +102,9 @@ export function useRoutePlanner(tilesUrl: string | undefined, paws: PawBySurface
     }
     const id = (run.current += 1);
     setStatus({ kind: 'routing' });
-    const context =
-      paws === undefined
-        ? {}
-        : {
-            pawBands: {
-              asphalt: paws.asphalt.band,
-              concrete: paws.concrete.band,
-              sand: paws.sand.band,
-              gravel: paws.gravel.band,
-              grass: paws.grass.band,
-            },
-          };
+    // The current hour's weather: paw bands for sun and each shade level, and
+    // the felt temperature that makes shade worth a detour.
+    const context = hour === undefined ? {} : { pawBands: pawBandsByExposure(hour), feltC: hour.apparentC };
     void source.graphAround(stops).then((outcome) => {
       if (id !== run.current) return; // a newer edit won
       if (!outcome.ok) {
@@ -124,7 +116,7 @@ export function useRoutePlanner(tilesUrl: string | undefined, paws: PawBySurface
       else if (result.reason === 'tooFew') setStatus({ kind: 'idle' });
       else setStatus({ kind: 'failed', message: FAILURE_TEXT[result.reason](result.waypointIndex ?? 0) });
     });
-  }, [active, state, source, paws]);
+  }, [active, state, source, hour]);
 
   // Keep the share link in the address bar while planning.
   useEffect(() => {

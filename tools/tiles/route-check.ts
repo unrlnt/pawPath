@@ -8,6 +8,7 @@
  */
 
 import { WalkGraphSource } from '../../src/data/sources/walkGraphSource';
+import { pawBandsByExposure } from '../../src/lib/conditions/pawBySurface';
 import { planRoute } from '../../src/lib/routing/route';
 import { FileSource } from './lib/fileSource';
 
@@ -55,7 +56,7 @@ async function main(): Promise<void> {
     const t = performance.now();
     const context =
       label === 'hot afternoon'
-        ? { pawBands: { asphalt: 'danger', concrete: 'caution', sand: 'caution', gravel: 'fine', grass: 'fine' } as const }
+        ? { pawBands: pawBandsByExposure({ airC: 31, shortwaveWm2: 900, windKmh: 3 }), feltC: 32 }
         : {};
     const route = planRoute(graph, [a, b], context);
     if (!route.ok) {
@@ -64,7 +65,7 @@ async function main(): Promise<void> {
     }
     const p = route.profile;
     console.log(
-      `${label}: ${(p.lengthM / 1000).toFixed(2)} km, ${p.minutes} min · hot ${p.byBand.danger.toFixed(0)} m, warm ${p.byBand.caution.toFixed(0)} m · paved ${p.pavedM.toFixed(0)} m, unpaved ${p.unpavedM.toFixed(0)} m, unknown ${p.unknownSurfaceM.toFixed(0)} m — ${(performance.now() - t).toFixed(0)} ms`,
+      `${label}: ${(p.lengthM / 1000).toFixed(2)} km, ${p.minutes} min · hot ${p.byBand.danger.toFixed(0)} m, warm ${p.byBand.caution.toFixed(0)} m · paved ${p.pavedM.toFixed(0)} m, unpaved ${p.unpavedM.toFixed(0)} m, unknown ${p.unknownSurfaceM.toFixed(0)} m · shade ${p.shadeM.toFixed(0)} m (dense ${p.denseShadeM.toFixed(0)} m) — ${(performance.now() - t).toFixed(0)} ms`,
     );
   }
 }

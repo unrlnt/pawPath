@@ -2,9 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import { edgeFactor, FORBIDDEN } from './cost';
 import { buildGraph, gridToLngLat, type GridLine } from './graph';
+import { makeShadeLookup, stretchShade } from './shade';
+import { edgeFactor as factorOf, sunFactor } from './cost';
 import { bestInsertIndex, formatDistance, formatMinutes, progressAlong } from './edit';
 import { decodeRouteHash, encodeRouteHash, toGpx } from './io';
 import { planRoute } from './route';
+
+/** The same paw bands in sun and every shade level. */
+const everywhere = <const T,>(b: T) => ({ sun: b, light: b, medium: b, dense: b }) as const;
 
 const Z = 14;
 const EXT = 4096;
@@ -46,15 +51,15 @@ describe('dog-aware cost', () => {
   });
 
   it('makes hot asphalt expensive only when it is hot', () => {
-    const hot = { pawBands: { asphalt: 'danger', concrete: 'caution', sand: 'caution', gravel: 'fine', grass: 'fine' } } as const;
-    const cool = { pawBands: { asphalt: 'fine', concrete: 'fine', sand: 'fine', gravel: 'fine', grass: 'fine' } } as const;
+    const hot = { pawBands: everywhere({ asphalt: 'danger', concrete: 'caution', sand: 'caution', gravel: 'fine', grass: 'fine' }) } as const;
+    const cool = { pawBands: everywhere({ asphalt: 'fine', concrete: 'fine', sand: 'fine', gravel: 'fine', grass: 'fine' }) } as const;
     const asphalt = { highway: 'footway', surface: 'asphalt' };
     expect(edgeFactor(asphalt, hot)).toBeGreaterThan(edgeFactor({ highway: 'footway', surface: 'grass' }, hot));
     expect(edgeFactor(asphalt, cool)).toBe(edgeFactor({ highway: 'footway', surface: 'grass' }, cool));
   });
 
   it('treats an unmapped surface as possibly paved in the heat', () => {
-    const hot = { pawBands: { asphalt: 'danger', concrete: 'caution', sand: 'caution', gravel: 'fine', grass: 'fine' } } as const;
+    const hot = { pawBands: everywhere({ asphalt: 'danger', concrete: 'caution', sand: 'caution', gravel: 'fine', grass: 'fine' }) } as const;
     const unknown = edgeFactor({ highway: 'footway' }, hot);
     expect(unknown).toBeGreaterThan(edgeFactor({ highway: 'footway', surface: 'grass' }, hot));
     expect(unknown).toBeLessThan(edgeFactor({ highway: 'footway', surface: 'asphalt' }, hot));
@@ -71,7 +76,7 @@ describe('planRoute', () => {
   const graph = buildGraph(lines, Z, EXT);
   const A = ll(0, 0);
   const B = ll(400, 0);
-  const hot = { pawBands: { asphalt: 'danger', concrete: 'danger', sand: 'caution', gravel: 'fine', grass: 'fine' } } as const;
+  const hot = { pawBands: everywhere({ asphalt: 'danger', concrete: 'danger', sand: 'caution', gravel: 'fine', grass: 'fine' }) } as const;
 
   it('takes the short street when the weather does not matter', () => {
     const r = planRoute(graph, [A, B]);
@@ -165,5 +170,79 @@ describe('editing and following', () => {
     expect(formatDistance(1430)).toBe('1.4 km');
     expect(formatMinutes(35)).toBe('35 min');
     expect(formatMinutes(80)).toBe('1 h 20 min');
+  });
+});
+
+describe('shade along the route', () => {
+  // A forest square from x 0–300, y 100–400, with a clearing (hole) inside.
+  const forest = {
+    level: 'dense' as const,
+    rings: [
+      [pt(0, 100), pt(300, 100), pt(300, 400), pt(0, 400), pt(0, 100)],
+      [pt(100, 200), pt(200, 200), pt(200, 300), pt(100, 300), pt(100, 200)],
+    ],
+  };
+  const treeRow = { level: 'light' as const, points: [pt(0, -40), pt(400, -40)] };
+  const lookup = makeShadeLookup([forest], [treeRow], 15);
+
+  it('finds forest, respects clearings, and counts paths beside tree rows', () => {
+    expect(lookup(...pt(50, 150))).toBe('dense');
+    expect(lookup(...pt(150, 250))).toBeUndefined(); // the clearing
+    expect(lookup(...pt(200, -30))).toBe('light');
+    expect(lookup(...pt(200, 40))).toBeUndefined();
+  });
+
+  it('counts a path in a gap between two woods as in the wood, and a forest edge as light', () => {
+    // Two woods, x 0–100 and x 110–300, with a path in the gap at x 105.
+    const left = { level: 'dense' as const, rings: [[pt(0, 0), pt(100, 0), pt(100, 300), pt(0, 300), pt(0, 0)]] };
+    const right = { level: 'medium' as const, rings: [[pt(110, 0), pt(300, 0), pt(300, 300), pt(110, 300), pt(110, 0)]] };
+    const woods = makeShadeLookup([left, right], [], 0);
+    expect(stretchShade(woods, pt(105, 10), pt(105, 290), 20)).toBe('medium');
+    expect(stretchShade(woods, pt(105, 10), pt(105, 290), 0)).toBeUndefined();
+    // Along the outer edge of the left wood only.
+    expect(stretchShade(woods, pt(-10, 10), pt(-10, 290), 20)).toBe('light');
+  });
+
+  it('leans into shade as it gets warmer, more for full sun than a tree row', () => {
+    expect(sunFactor(undefined)).toBe(1);
+    expect(sunFactor(15)).toBe(1);
+    expect(sunFactor(30)).toBeGreaterThan(sunFactor(22));
+    const ctx = { feltC: 30 };
+    const path = { highway: 'path', surface: 'grass' };
+    expect(factorOf(path, ctx, 'dense')).toBeLessThan(factorOf(path, ctx, 'light'));
+    expect(factorOf(path, ctx, 'light')).toBeLessThan(factorOf(path, ctx));
+  });
+
+  it('cools the paw band of a shaded stretch', () => {
+    const bands = {
+      sun: { asphalt: 'danger', concrete: 'danger', sand: 'caution', gravel: 'fine', grass: 'fine' },
+      light: { asphalt: 'danger', concrete: 'caution', sand: 'fine', gravel: 'fine', grass: 'fine' },
+      medium: { asphalt: 'caution', concrete: 'fine', sand: 'fine', gravel: 'fine', grass: 'fine' },
+      dense: { asphalt: 'fine', concrete: 'fine', sand: 'fine', gravel: 'fine', grass: 'fine' },
+    } as const;
+    const asphalt = { highway: 'footway', surface: 'asphalt' };
+    expect(factorOf(asphalt, { pawBands: bands }, 'dense')).toBeLessThan(factorOf(asphalt, { pawBands: bands }));
+  });
+
+  it('routes through the wood on a warm day and reports it in the profile', () => {
+    // A straight open path along y 80 (300 units), and one a third longer
+    // that dips into the wood (y 130) for most of its length.
+    const graph = buildGraph(
+      [
+        line({ highway: 'path', surface: 'grass' }, pt(0, 80), pt(300, 80)),
+        line({ highway: 'path', surface: 'grass' }, pt(0, 80), pt(0, 130), pt(300, 130), pt(300, 80)),
+      ],
+      Z,
+      EXT,
+      { at: makeShadeLookup([forest], [], 15), sideReach: 0 },
+    );
+    const cool = planRoute(graph, [ll(0, 80), ll(300, 80)]);
+    const warm = planRoute(graph, [ll(0, 80), ll(300, 80)], { feltC: 30 });
+    expect(cool.ok && cool.profile.shadeM).toBe(0);
+    expect(warm.ok).toBe(true);
+    if (!warm.ok) return;
+    expect(warm.profile.shadeM).toBeGreaterThan(0);
+    expect(warm.profile.denseShadeM).toBe(warm.profile.shadeM);
+    expect(warm.segments.some((seg) => seg.shaded)).toBe(true);
   });
 });

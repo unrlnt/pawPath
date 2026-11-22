@@ -543,7 +543,9 @@ Constraints that keep this compatible with §2:
 - [x] Phase 9 — Route planner *(done 2026-11-22, pulled forward before
       Phase 7: in-browser A* on the `walk` tile layer, dog- and heat-aware;
       drag stops and the line, undo, round trip, save, share link, GPX,
-      "walk it". Verified in the browser at Almere.)*
+      "walk it"; shade along the route preferred in the heat and shown.
+      Verified in the browser at Almere. Routing *via* amenities: after
+      launch.)*
 - [ ] Phase 10 — Community mirrors *(idea)*
 - [ ] Phase 11 — Mobile app *(idea: PWA first, Capacitor later)*
 - [ ] Phase 12 — Report what's missing *(idea: anonymous OSM Notes, permanent
@@ -652,7 +654,43 @@ Headless Chromium, Almere centre, z14.6:
 - No page errors (Open-Meteo answered 429 to this sandbox in one run: its
   per-IP limit, shared by the whole cloud host; not our traffic).
 
+### Phase 9b — verification (2026-11-22)
+
+`tiles:route-check`, cool vs hot afternoon (31 °C, felt 32 °C):
+shade on three Almere test routes 1.5 → 1.6 km, 0.79 → 1.15 km and
+0.65 → 1.14 km; a short route inside the Almeerderhout area 0.63 → 0.79 km
+of 1.2 km. Browser, same area, simulated heat: "2.0 km · 1.1 km in shade",
+green-edged stretches through the wood and along a tree-lined street; kind
+to paws 230 m → 860 m compared with the run before side sampling. 129 tests.
+
 ### Decisions log
+
+**Phase 9b — shade along the route (2026-11-22, also closes the Phase 5
+stretch goal)**
+
+- **Shade comes from the tiles the planner already loads**: the `shade`
+  layer's forest/wood (dense), scrub (medium) and tree rows (light) are
+  decoded next to `walk`, on the same integer grid, into a bucketed lookup
+  (`src/lib/routing/shade.ts`). Each edge gets a shade level from three
+  samples (¼, ½, ¾; two must agree).
+- **Paths between woodland polygons.** First browser run: a route straight
+  through the Almeerderhout area had ~0 m shade, because Dutch woodland
+  (BGT imports) is mapped as pieces with the paths left as gaps — only 10 %
+  of forest-path edges were inside a polygon. Each sample now also looks
+  8 m to both sides (`ROUTE_SHADE_SIDE_REACH_M`): wooded on both sides = in
+  the wood (the lower level), one side = forest edge = light. Tree rows
+  shade paths within 10 m (`ROUTE_TREE_ROW_REACH_M`).
+- **Shade cools the paw estimate per stretch**: canopy fractions
+  `SHADE_CANOPY_FRACTION` (sun 0, light 0.3, medium 0.5, dense 0.85) feed
+  the paw model's shade factor, so the router and the profile use the band
+  of the path's surface *under its shade*.
+- **Shade for the dog, whatever the surface**: full sun costs extra by felt
+  temperature — ×1.15 from 20 °C, ×1.35 from 24 °C, ×1.6 from 28 °C
+  (`ROUTE_SUN_FACTOR_BY_FELT_C`, aligned with `DOG_HEAT_BANDS_C`); tree rows
+  pay half the extra, woods and scrub none. Cool days: no effect.
+- **Shown**: shaded stretches have a wider sage-green edge on the route line
+  (not colour alone); the profile adds "1.1 km in shade (120 m under trees)"
+  or "no mapped shade".
 
 **Phase 9 — route planner (2026-11-22)**
 
@@ -686,8 +724,10 @@ Headless Chromium, Almere centre, z14.6:
   heat claim without weather.
 - **"Walk it"** uses `watchPosition` only while on, follows the walker, shows
   distance left and "off the route by …" beyond 40 m. No turn-by-turn.
-- **Not done**: amenities along the route (benches, bins, water near it) and
-  shade along the route (the stretch goal from Phase 5) — both candidates.
+- **Owner, 2026-11-22**: a list of amenities along the route is *not
+  wanted*; **shade along the route is built** (below); **routing via
+  amenities** ("add a water stop", "pass a bag dispenser") is wanted
+  **after launch**.
 - **OSM write-backs** recorded as Phase 12: anonymous OSM Notes for permanent
   features only, never algae or other temporary states.
 
@@ -736,6 +776,8 @@ Headless Chromium, Almere centre, z14.6:
   scrub), tree rows as round dots; hatch tiles drawn at runtime like the icons.
 - **Not done (stretch)**: canopy fraction for paths running through shade
   polygons — the per-path estimate assumes full sun, which is the safe side.
+  *Done for planned routes in Phase 9b; the map's path colours still assume
+  full sun.*
 - **Mobile app** recorded as Phase 11 (owner idea): PWA first, Capacitor later.
 
 **Phase 4 + owner feedback (2026-11-22)**

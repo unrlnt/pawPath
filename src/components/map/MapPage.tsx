@@ -106,7 +106,7 @@ export default function MapPage() {
   const paws = useMemo(() => (currentHour === undefined ? undefined : pawBySurface(currentHour)), [currentHour]);
 
   // Route planner (Phase 9).
-  const planner = useRoutePlanner(tilesUrl, paws);
+  const planner = useRoutePlanner(tilesUrl, currentHour);
   const [walking, setWalking] = useState(false);
   const [savedOpen, setSavedOpen] = useState(false);
   const [fit, setFit] = useState<{ key: number; bounds: [LngLat, LngLat] } | undefined>(undefined);

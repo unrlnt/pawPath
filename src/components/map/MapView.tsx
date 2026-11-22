@@ -309,7 +309,7 @@ export default function MapView({
       features: (overlay?.segments ?? []).map((segment) => ({
         type: 'Feature',
         geometry: { type: 'LineString', coordinates: segment.coords.map((c) => [c[0], c[1]]) },
-        properties: { band: segment.band ?? 'unknown' },
+        properties: { band: segment.band ?? 'unknown', shaded: segment.shaded },
       })),
     };
     const source = map.getSource(ROUTE_SOURCE_ID) as GeoJSONSource | undefined;
@@ -324,7 +324,20 @@ export default function MapView({
           type: 'line',
           source: ROUTE_SOURCE_ID,
           layout: { 'line-cap': 'round', 'line-join': 'round' },
-          paint: { 'line-color': palette.ink, 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 6, 18, 14] },
+          // Shaded stretches get a green edge: shade reads at a glance, and
+          // not by colour alone — the edge is also wider.
+          paint: {
+            'line-color': ['case', ['get', 'shaded'], palette.sageDeep, palette.ink],
+            'line-width': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              12,
+              ['case', ['get', 'shaded'], 8, 6],
+              18,
+              ['case', ['get', 'shaded'], 18, 14],
+            ],
+          },
         },
         before,
       );
