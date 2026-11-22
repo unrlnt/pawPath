@@ -1,0 +1,10 @@
+# Geofabrik continent extracts. Overlaps at borders are removed by osmium merge.
+https://download.geofabrik.de/africa-latest.osm.pbf
+https://download.geofabrik.de/antarctica-latest.osm.pbf
+https://download.geofabrik.de/asia-latest.osm.pbf
+https://download.geofabrik.de/australia-oceania-latest.osm.pbf
+https://download.geofabrik.de/central-america-latest.osm.pbf
+https://download.geofabrik.de/europe-latest.osm.pbf
+https://download.geofabrik.de/north-america-latest.osm.pbf
+https://download.geofabrik.de/russia-latest.osm.pbf
+https://download.geofabrik.de/south-america-latest.osm.pbf

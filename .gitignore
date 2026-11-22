@@ -5,3 +5,7 @@ dist/
 *.local
 .DS_Store
 .vite/
+.tiles-work/
+public/tiles/
+*.osm.pbf
+*.pmtiles

@@ -2,9 +2,12 @@
  * All tunables live here. No magic numbers in components, lib functions or
  * data sources — import from this file instead.
  *
- * Values are taken from CLAUDE.md; where the spec gave a range or an
- * approximation the chosen concrete value is noted in a comment.
+ * This module is also imported by the Node build tools (tools/tiles), where
+ * `import.meta.env` does not exist — read env vars through `ENV` only.
  */
+
+const ENV: Readonly<Record<string, string | undefined>> =
+  (import.meta as { env?: Record<string, string | undefined> }).env ?? {};
 
 /* ------------------------------------------------------------------ *
  * Identity
@@ -13,321 +16,60 @@
 export const APP_NAME = 'PawPath';
 
 /**
- * Sentinel meaning "no contact URL has been set yet". Queries built while this
- * is still in place say so honestly rather than carrying an invented URL — see
- * `buildOverpassQL`.
+ * Public contact for the project: the repository (CLAUDE.md §11, Phase 7
+ * checklist). Shown in the disclaimer as "source & feedback". It resolves
+ * once the repository is public.
  */
-export const APP_CONTACT_URL_UNSET = 'UNSET';
-
-/**
- * How an Overpass instance operator reaches us before deciding to block us.
- *
- * Browsers forbid setting `User-Agent`, so the spec's "descriptive
- * User-Agent-equivalent" (§5) is emitted as a comment at the top of every
- * query instead, and this URL is the whole of its value.
- *
- * MUST be set to a real, reachable public URL — a repository or the deployed
- * site — before the app is posted publicly (CLAUDE.md §11, Phase 7). Keep it
- * current afterwards: a dead link here is the same as no contact at all.
- */
-export const APP_CONTACT_URL: string = APP_CONTACT_URL_UNSET;
+export const APP_CONTACT_URL = 'https://github.com/unrlnt/pawPath';
 
 /* ------------------------------------------------------------------ *
- * Tile grid  (CLAUDE.md §8)
+ * Our vector tiles  (CLAUDE.md §3, §8)
  * ------------------------------------------------------------------ */
 
-/** Edge length of one query tile, in kilometres. Spec says "~2 km". */
-export const TILE_SIZE_KM = 2;
-
-/** Mean earth radius in km — used to convert the tile size to degrees. */
-export const EARTH_RADIUS_KM = 6371;
-
-/** Degrees of latitude per kilometre. Constant everywhere. */
-export const DEGREES_PER_KM_LAT = 360 / (2 * Math.PI * EARTH_RADIUS_KM);
+/** Highest zoom the tiles are built to; MapLibre overzooms above it. */
+export const TILE_MAX_ZOOM = 14;
 
 /**
- * Latitude beyond which the grid stops widening tiles in longitude.
- * Prevents a divide-by-~0 in the cos(lat) correction at the poles.
- */
-export const TILE_GRID_MAX_LATITUDE = 85;
-
-/* ------------------------------------------------------------------ *
- * Query strategy  (CLAUDE.md §8)
- * ------------------------------------------------------------------ */
-
-/** Below this zoom, show a "zoom in" hint instead of querying amenities. */
-export const MIN_QUERY_ZOOM = 13;
-
-/**
- * Layers that need to be closer in than `MIN_QUERY_ZOOM` before they load.
+ * Lowest zoom each layer is shown at. Built into the tiles at
+ * `min(value, TILE_MAX_ZOOM)` and used by the style and the "zoom in" hint.
  *
- * Surface measured 700–780 features/km² in Run 1 — roughly 2,800 ways per 2 km
- * tile, an order of magnitude past everything else. Loading it at the same zoom
- * as benches would dominate every viewport's payload and slot time. At z16 a
- * viewport covers about a sixteenth of the area, which brings it back in line.
+ * Surface is held back to z15: it is an order of magnitude denser than every
+ * other layer (700–780 features/km² measured with all highways).
  */
-export const LAYER_MIN_ZOOM: Readonly<Record<string, number>> = {
-  surface: 16,
-};
-
-/** Minimum zoom at which a layer may be queried. */
-export function minZoomForLayer(layer: string): number {
-  return LAYER_MIN_ZOOM[layer] ?? MIN_QUERY_ZOOM;
-}
-
-/** Milliseconds to wait after the map settles before issuing queries. */
-export const QUERY_DEBOUNCE_MS = 500;
-
-/**
- * Client-side abort for a single Overpass request, per output group.
- *
- * A healthy amenity query returns in 1–3 s (measured in Run 1: benches 1.1 s,
- * drinking water 1.1 s). Waiting 40 s for one is waiting on a request that has
- * already failed. Polygon queries genuinely do take tens of seconds, so they
- * keep a long timeout — the two must not share a budget.
- */
-export const OVERPASS_TIMEOUT_MS = {
-  /** Point queries: benches, bins, drinking water. */
-  amenity: 12_000,
-  /** Polygon queries: shade, water, off-leash areas, surface. */
-  area: 45_000,
+export const LAYER_MIN_ZOOM = {
+  shade: 11,
+  offLeash: 11,
+  water: 11,
+  surface: 15,
+  benches: 13,
+  waste: 13,
+  drinkingWater: 13,
 } as const;
 
-/** Fallback for callers outside the two groups (recon, connectivity test). */
-export const OVERPASS_REQUEST_TIMEOUT_MS = OVERPASS_TIMEOUT_MS.area;
+/**
+ * Small JSON written by the tile build: `{ "url": "pawpath-YYYYMMDD.pmtiles", ... }`.
+ * Served with a short cache lifetime, while the `.pmtiles` it points at is
+ * immutable — so a new build never mixes with tiles cached from an old one.
+ */
+export const TILES_MANIFEST_URL: string = ENV['VITE_TILES_MANIFEST_URL'] ?? '/tiles/manifest.json';
 
 /**
- * Value passed to Overpass's own `[timeout:N]` setting, per group, in seconds.
- * Kept below the client timeout so the server gives up first and returns a
- * readable remark rather than us aborting blind.
+ * Optional runtime water warnings (Phase 6, format in docs/water-warnings.md).
+ * Missing file = no warnings known: sites stay "monitored", never "safe".
  */
-export const OVERPASS_SERVER_TIMEOUT_S = {
-  amenity: 10,
-  area: 40,
-} as const;
+export const WATER_WARNINGS_URL: string = ENV['VITE_WATER_WARNINGS_URL'] ?? '/tiles/water-warnings.json';
+
+/** How often the app re-reads the warnings file. */
+export const WATER_WARNINGS_REFRESH_MS = 30 * 60_000;
+
+/** Official bathing seasons run roughly May–September (1-based months, inclusive). */
+export const BATHING_SEASON_MONTHS = { start: 5, end: 9 } as const;
 
 /* ------------------------------------------------------------------ *
- * Latency budget  (per user action, not per request)
+ * Conditions  (Phase 3)
  * ------------------------------------------------------------------ */
 
-/**
- * Longest the UI will block on one user action — a pan, a zoom, a search.
- *
- * The retry policy's worst case is minutes, which on mobile is
- * indistinguishable from broken. Past this cap the UI stops waiting and shows
- * whatever has arrived; the retries do NOT stop, they continue in the
- * background and paint tiles as they land. A cap that cancelled the work would
- * just be the Phase 1 "give up early" bug wearing a new hat.
- */
-export const USER_ACTION_LATENCY_BUDGET_MS = 50_000;
-
-/**
- * Hard cap on elements returned by one query (`out ... <cap>`). A response at
- * exactly this size is reported as truncated rather than silently trusted.
- */
-export const OVERPASS_RESULT_CAP = 20_000;
-
-/**
- * ONE request at a time, always.
- *
- * The Overpass usage policy asks clients not to run requests in parallel from
- * one IP or IP block: an instance's slots are shared across everyone behind
- * that address, so parallelism from a single client crowds out other users and
- * is what earns a 429. This is a policy constraint, not a tuning knob — raising
- * it is a violation, not an optimisation.
- */
-export const OVERPASS_MAX_CONCURRENCY = 1;
-
-/** Pause between sequential Overpass requests. Politeness, not a limit. */
-export const OVERPASS_INTER_REQUEST_DELAY_MS = 300;
-
-/**
- * Attempts against ONE instance before rotating.
- *
- * Run 2's failures were not the servers: the same queries succeed by hand from
- * overpass-turbo in the same browser on the same IP. We rotated through every
- * instance on the first network-class error and gave up in 10–18 s with no real
- * retry. Transient errors are normal and clear on retry, so we now try the same
- * instance repeatedly before moving on.
- */
-export const OVERPASS_ATTEMPTS_PER_INSTANCE = 3;
-
-/** Total attempts for one query across all instances. */
-export const OVERPASS_MAX_ATTEMPTS = 5;
-
-/** First backoff pause, doubling per attempt: ~1s, 2s, 4s, 8s, 16s. */
-export const OVERPASS_BACKOFF_BASE_MS = 1_000;
-
-/** Ceiling for a single backoff pause. */
-export const OVERPASS_BACKOFF_MAX_MS = 30_000;
-
-/**
- * Jitter fraction of each backoff delay. 0.5 = "equal jitter": half the delay
- * is fixed, half is random. Without this, every client that hit the same
- * outage retries in lockstep and re-creates the burst that caused it.
- */
-export const OVERPASS_BACKOFF_JITTER = 0.5;
-
-/** Consecutive failures before an instance is parked by the circuit breaker. */
-export const OVERPASS_BREAKER_THRESHOLD = 3;
-
-/** How long a parked instance stays parked before it is probed again. */
-export const OVERPASS_BREAKER_COOLDOWN_MS = 5 * 60_000;
-
-/** How long a fetched `/api/status` reading stays usable. */
-export const OVERPASS_STATUS_TTL_MS = 10_000;
-
-/** Cap on how long we will wait for a slot reported by `/api/status`. */
-export const OVERPASS_MAX_SLOT_WAIT_MS = 90_000;
-
-/* ------------------------------------------------------------------ *
- * Overpass instances
- * ------------------------------------------------------------------ */
-
-export interface OverpassInstanceConfig {
-  readonly label: string;
-  readonly url: string;
-  /** `/api/status`, used for slot-aware waiting on 429. */
-  readonly statusUrl: string;
-  /**
-   * `active` instances take part in rotation. `candidate` ones do not: they
-   * appear only in the dev connectivity tester, so they can be verified
-   * (planet-wide coverage, CORS, no UA policing) before being promoted here.
-   */
-  readonly status: 'active' | 'candidate';
-  readonly note: string;
-}
-
-/**
- * Public Overpass instances, in the order they are tried
- * (https://wiki.openstreetmap.org/wiki/Overpass_API#Public_Overpass_API_instances).
- *
- * kumi.systems leads because its wiki entry permits use for any purpose and it
- * has the largest public capacity. overpass-api.de is at normal priority: the
- * 406 that once demoted it was our own `Accept` header, not bot filtering —
- * see `OVERPASS_ACCEPT_HEADER`.
- *
- * To add an instance: confirm from the wiki table that it serves **planet**
- * data (several are regional extracts and would silently return nothing
- * outside their region), then that it sends permissive CORS headers, then flip
- * `status` to `active`. The connectivity tester on the map page does the last
- * two checks for you.
- */
-export const OVERPASS_INSTANCE_CONFIGS: readonly OverpassInstanceConfig[] = [
-  {
-    label: 'kumi.systems',
-    url: 'https://overpass.kumi.systems/api/interpreter',
-    statusUrl: 'https://overpass.kumi.systems/api/status',
-    status: 'active',
-    note: 'Wiki entry permits any purpose. Largest public capacity. Primary.',
-  },
-  {
-    label: 'overpass-api.de',
-    url: 'https://overpass-api.de/api/interpreter',
-    statusUrl: 'https://overpass-api.de/api/status',
-    status: 'active',
-    note: 'Reference instance. Normal priority.',
-  },
-  {
-    label: 'private.coffee',
-    url: 'https://overpass.private.coffee/api/interpreter',
-    statusUrl: 'https://overpass.private.coffee/api/status',
-    status: 'active',
-    note: 'Planet-wide community instance.',
-  },
-  {
-    label: 'osm.ch',
-    url: 'https://overpass.osm.ch/api/interpreter',
-    statusUrl: 'https://overpass.osm.ch/api/status',
-    status: 'candidate',
-    note:
-      'Swiss OSM association. VERIFY planet coverage and CORS with the ' +
-      'connectivity tester before promoting — it may be a regional extract.',
-  },
-  {
-    label: 'osm.jp',
-    url: 'https://overpass.osm.jp/api/interpreter',
-    statusUrl: 'https://overpass.osm.jp/api/status',
-    status: 'candidate',
-    note: 'Japanese mirror. VERIFY planet coverage and CORS before promoting.',
-  },
-];
-
-/** Instances that take part in rotation, in order. */
-export const OVERPASS_INSTANCES: readonly string[] = OVERPASS_INSTANCE_CONFIGS.filter(
-  (instance) => instance.status === 'active',
-).map((instance) => instance.url);
-
-/* ------------------------------------------------------------------ *
- * Request shape  (CORS — see CLAUDE.md §5)
- * ------------------------------------------------------------------ */
-
-/**
- * `Accept` sent on every Overpass request.
- *
- * States our intent (`application/json`) but keeps a wildcard fallback, and the
- * fallback is deliberate. Measured against overpass-api.de on 2026-09-07:
- *
- * | From                     | Accept                | Result |
- * |--------------------------|-----------------------|--------|
- * | browser `fetch`, localhost | wildcard            | 200    |
- * | browser address bar      | `text/html,…`         | 406    |
- * | curl (default UA)        | `application/json`    | 200    |
- * | curl (default UA)        | `text/html,…`         | 200    |
- * | curl (browser UA string) | any of the above      | 406    |
- *
- * So the discriminator is not the same everywhere: from a browser it is the
- * `Accept` header; from this development machine it is the `User-Agent`, and
- * `Accept` makes no difference at all. `overpass-api.de` balances across
- * backends whose configuration differs, so both observations are real.
- *
- * A bare `application/json` would therefore be a bet. The wildcard fallback
- * means negotiation cannot fail even on an instance that labels its JSON
- * `application/osm3s+json`, while the explicit type still says what we want.
- *
- * `Accept` is a CORS-safelisted request header, so this adds no preflight.
- */
-export const OVERPASS_ACCEPT_HEADER = 'application/json, */*;q=0.8';
-
-/**
- * `Content-Type` for the POST body.
- *
- * MUST stay one of the three CORS-safelisted values (`text/plain`,
- * `application/x-www-form-urlencoded`, `multipart/form-data`). Anything else —
- * `application/json` above all — turns every request into a preflighted one,
- * and a failed `OPTIONS` preflight surfaces in the browser as a bare
- * `TypeError` with no status and no response: exactly the "pre-HTTP fetch
- * rejection" that Run 2 hit on all three instances at once.
- */
-export const OVERPASS_CONTENT_TYPE = 'application/x-www-form-urlencoded';
-
-/* ------------------------------------------------------------------ *
- * Usage policy compliance  (CLAUDE.md §5, §9)
- * ------------------------------------------------------------------ */
-
-/**
- * Documented safety margin in the Overpass usage policy: roughly 10,000
- * queries or 1 GB per day from one user. We budget per session, well under it,
- * and stop rather than degrade quietly. Surfaced in the dev cache inspector.
- */
-export const OVERPASS_SESSION_REQUEST_BUDGET = 1_000;
-
-/** Session download budget in bytes, against the policy's ~1 GB/day. */
-export const OVERPASS_SESSION_BYTE_BUDGET = 100 * 1024 * 1024;
-
-/* ------------------------------------------------------------------ *
- * Cache TTLs  (CLAUDE.md §8) — consumed by the Phase 2 IndexedDB layer
- * ------------------------------------------------------------------ */
-
-export const OSM_TILE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 export const CONDITIONS_TTL_MS = 60 * 60 * 1000; // 1 hour
-
-/**
- * Part of every cached tile key. Bump it whenever the shape of a normalised
- * `Feature`, a level derivation or a layer's selectors change — old entries
- * then stop matching instead of being silently reused under new semantics.
- */
-export const TILE_CACHE_SCHEMA_VERSION = 1;
 
 /* ------------------------------------------------------------------ *
  * Paw surface temperature model  (CLAUDE.md §7)
@@ -376,17 +118,104 @@ export const PAW_ESTIMATE_SPREAD_C = 3;
 
 export const SEASONAL_RULES = {
   grassSeeds: { startMonth: 6, endMonth: 8 },
-  oakProcessionary: { startMonth: 4, endMonth: 7 },
+  oakProcessionary: {
+    startMonth: 4,
+    endMonth: 7,
+    /** Months when the stinging hairs are most abundant. */
+    peakMonths: [5, 6],
+    countries: ['NL', 'DE', 'BE'],
+  },
   breedingSeasonLeash: {
     start: { month: 3, day: 1 },
     end: { month: 7, day: 15 },
+    countries: ['NL'],
   },
   ticks: {
     /** Daily mean above this for `consecutiveDays` days activates the warning. */
     activationTempC: 7,
     consecutiveDays: 3,
+    /** Spring and autumn peaks. */
+    peakMonths: [4, 5, 6, 9, 10],
   },
+  /**
+   * Winter paws (added 2026-11-21, §12): frost and snow mean ice and road salt,
+   * both hard on pads. Derived from the forecast, no extra source.
+   */
+  winterPaws: { frostAtOrBelowC: 0, snowfallCm: 0.1 },
 } as const;
+
+/**
+ * Rough country boxes for the country-specific advisories above. Deliberately
+ * approximate (they overlap at borders): showing the oak-caterpillar note a
+ * few km into France is harmless, and it avoids a geocoding call.
+ */
+export const COUNTRY_BOXES: Readonly<Record<string, { south: number; west: number; north: number; east: number }>> = {
+  NL: { south: 50.75, west: 3.2, north: 53.7, east: 7.25 },
+  BE: { south: 49.5, west: 2.5, north: 51.5, east: 6.4 },
+  DE: { south: 47.25, west: 5.85, north: 55.1, east: 15.05 },
+};
+
+/* ------------------------------------------------------------------ *
+ * Conditions scoring  (CLAUDE.md §7)
+ * ------------------------------------------------------------------ */
+
+/** WHO UV index bands: low < 3, moderate < 6, high < 8, very high < 11, extreme. */
+export const UV_BANDS = { moderate: 3, high: 6, veryHigh: 8, extreme: 11 } as const;
+
+/** European AQI bands (EEA): good < 20, fair < 40, moderate < 60, poor < 80, very poor < 100. */
+export const AQI_BANDS = { fair: 20, moderate: 40, poor: 60, veryPoor: 80, extremelyPoor: 100 } as const;
+
+/** Precipitation probability (%) that makes an hour "ok" or "poor" for a walk. */
+export const RAIN_PROBABILITY = { ok: 30, poor: 60 } as const;
+
+/** A 15-minute slot with at least this much rain (mm) counts as wet. */
+export const RAIN_WET_MM_PER_15MIN = 0.1;
+
+/**
+ * Heat stress for dogs, on the FELT (apparent) temperature at the location —
+ * a general factor, not per path (§7). Rough vet guidance: risk rises from
+ * ~20 °C for flat-faced, old, overweight or thick-coated dogs, and from ~28 °C
+ * for every dog. Approximate by nature; worded as advice.
+ */
+export const DOG_HEAT_BANDS_C = { moderate: 20, high: 24, veryHigh: 28, extreme: 32 } as const;
+
+/**
+ * Pollen (grains/m³, CAMS, Europe only) — shown as a note, never in the
+ * verdict. Thresholds approximate the usual low/moderate/high levels per type.
+ */
+export const POLLEN_BANDS = {
+  grass: { moderate: 20, high: 50 },
+  birch: { moderate: 50, high: 100 },
+  alder: { moderate: 50, high: 100 },
+  mugwort: { moderate: 20, high: 50 },
+  ragweed: { moderate: 10, high: 50 },
+  olive: { moderate: 50, high: 200 },
+} as const;
+
+/** How far ahead the short-range rain window looks. */
+export const RAIN_WINDOW_MINUTES = 120;
+
+/** How far ahead the walk window looks (CLAUDE.md §7: next 24 h). */
+export const WALK_WINDOW_HOURS = 24;
+
+/* ------------------------------------------------------------------ *
+ * Open-Meteo  (CLAUDE.md §5) — free tier is non-commercial
+ * ------------------------------------------------------------------ */
+
+export const OPEN_METEO_FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
+export const OPEN_METEO_AIR_URL = 'https://air-quality-api.open-meteo.com/v1/air-quality';
+
+/**
+ * Requests are snapped to this grid (degrees) so neighbours share a cache
+ * entry and a visitor panning around costs a handful of calls, not hundreds.
+ * 0.1° ≈ 11 km — finer than the weather models' own resolution matters for.
+ */
+export const CONDITIONS_GRID_DEG = 0.1;
+
+/** Past days requested, for the tick rule's consecutive-day check. */
+export const CONDITIONS_PAST_DAYS = 3;
+
+export const CONDITIONS_TIMEOUT_MS = 10_000;
 
 /* ------------------------------------------------------------------ *
  * Layers
@@ -434,34 +263,37 @@ export const WALKABLE_HIGHWAY_TYPES = [
 /* ------------------------------------------------------------------ *
  * Basemap  (CLAUDE.md §4)
  *
- * Nothing provider-specific may leak into components: they read MAP_STYLE_URL
- * and MAP_ATTRIBUTION and nothing else. Swapping MapTiler for Stadia or
- * Protomaps is an env-var change.
+ * Components read MAP_STYLE_URL and MAP_ATTRIBUTION and nothing else, so
+ * swapping provider is an env-var change.
  * ------------------------------------------------------------------ */
 
-const MAPTILER_KEY = import.meta.env['VITE_MAPTILER_KEY'] ?? '';
+/** Default basemap: no key, no request limits (CLAUDE.md §4). */
+export const OPENFREEMAP_STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty';
+
+const MAPTILER_KEY = ENV['VITE_MAPTILER_KEY'] ?? '';
 
 /**
- * Style URL for the basemap.
- *
- * NEVER point this at tile.openstreetmap.org — their tile usage policy forbids
- * apps like this one, and doing so gets the app blocked (CLAUDE.md §4).
- *
- * `VITE_MAP_STYLE_URL` overrides everything, so a different provider needs no
- * code change. Otherwise MapTiler is used when a key is present.
+ * Style URL for the basemap. NEVER tile.openstreetmap.org — their usage policy
+ * forbids apps like this one.
  */
 export const MAP_STYLE_URL: string =
-  import.meta.env['VITE_MAP_STYLE_URL'] ??
+  ENV['VITE_MAP_STYLE_URL'] ??
   (MAPTILER_KEY === ''
-    ? ''
+    ? OPENFREEMAP_STYLE_URL
     : `https://api.maptiler.com/maps/streets-v2/style.json?key=${MAPTILER_KEY}`);
 
-/** True when no basemap provider is configured; the app then runs map-less. */
-export const MAP_STYLE_CONFIGURED = MAP_STYLE_URL !== '';
+/**
+ * Whether to repaint the basemap in PawPath's palette. Only safe for styles
+ * built on the OpenMapTiles schema (OpenFreeMap, MapTiler streets).
+ */
+export const MAP_RECOLOUR_BASEMAP = ENV['VITE_MAP_RECOLOUR'] !== 'false';
 
-/** Credit for the basemap provider. Displayed permanently — licence terms. */
-export const MAP_ATTRIBUTION: string =
-  import.meta.env['VITE_MAP_ATTRIBUTION'] ?? '© MapTiler';
+/**
+ * Extra basemap credit. Normally unset: OpenFreeMap and MapTiler styles carry
+ * their own attribution, and adding it again just duplicates it. Set
+ * `VITE_MAP_ATTRIBUTION` only for a style that credits nothing itself.
+ */
+export const MAP_ATTRIBUTION: string | undefined = ENV['VITE_MAP_ATTRIBUTION'];
 
 export const MAP_DEFAULT_ZOOM = 15;
 export const MAP_MAX_ZOOM = 19;
@@ -477,108 +309,85 @@ export const MAP_FALLBACK_CENTRE = { lat: 52.3508, lng: 5.2647, label: 'Almere, 
 export const GEOLOCATION_TIMEOUT_MS = 10_000;
 export const GEOLOCATION_MAX_AGE_MS = 60_000;
 
-/** Nominatim's usage policy allows at most one request per second. */
-export const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
-export const NOMINATIM_MIN_INTERVAL_MS = 1_000;
-export const NOMINATIM_DEBOUNCE_MS = 600;
-export const NOMINATIM_RESULT_LIMIT = 5;
-export const NOMINATIM_TIMEOUT_MS = 10_000;
-
-/* ------------------------------------------------------------------ *
- * Viewport → tiles
- * ------------------------------------------------------------------ */
-
 /**
- * Most tiles fetched for one viewport. Over this, the centre-most tiles are
- * fetched and the UI says coverage is partial — better than a burst of
- * requests that will be rate limited anyway.
+ * Photon place search (CLAUDE.md §5). Public instance is fair-use: searches run
+ * on submit only, at most one per `PHOTON_MIN_INTERVAL_MS`, never per keystroke.
  */
-export const MAX_TILES_PER_VIEWPORT = 9;
-
-/* ------------------------------------------------------------------ *
- * Tile cache  (CLAUDE.md §8)
- * ------------------------------------------------------------------ */
-
-/** Maximum cached tile-layer entries before LRU eviction starts. */
-export const TILE_CACHE_MAX_ENTRIES = 2_000;
-
-/** Approximate byte budget for the cache; eviction targets whichever binds first. */
-export const TILE_CACHE_MAX_BYTES = 40 * 1024 * 1024;
-
-/** Entries removed past the limit in one eviction pass, to avoid thrashing. */
-export const TILE_CACHE_EVICTION_BATCH = 100;
+export const PHOTON_URL: string = ENV['VITE_PHOTON_URL'] ?? 'https://photon.komoot.io/api/';
+export const PHOTON_MIN_QUERY_LENGTH = 3;
+export const PHOTON_MIN_INTERVAL_MS = 1_000;
+export const PHOTON_RESULT_LIMIT = 5;
+export const PHOTON_TIMEOUT_MS = 10_000;
 
 /* ------------------------------------------------------------------ *
  * Feature flags
  * ------------------------------------------------------------------ */
 
-/**
- * Phase 7's ad slot. Off by default; the layout reserves the space either way
- * so enabling it shifts nothing (CLAUDE.md §9).
- */
-export const ADS_ENABLED = import.meta.env['VITE_ADS_ENABLED'] === 'true';
+/** Phase 7's ad slot. Off by default; the layout reserves the space either way. */
+export const ADS_ENABLED = ENV['VITE_ADS_ENABLED'] === 'true';
 
-/** Height of the reserved ad slot, in CSS pixels. Reserved whether or not it is on. */
+/** Height of the reserved ad slot, in CSS pixels. */
 export const AD_SLOT_HEIGHT_PX = 50;
 
-/**
- * Route Overpass through a pass-through proxy instead of calling instances
- * directly. OFF by default — the proxy itself is not built (CLAUDE.md §11,
- * Phase 2 seam).
- */
-export const PROXY_ENABLED = import.meta.env['VITE_OVERPASS_PROXY_ENABLED'] === 'true';
-
-/** Endpoint the proxy seam forwards raw Overpass QL to when enabled. */
-export const PROXY_ENDPOINT: string = import.meta.env['VITE_OVERPASS_PROXY_URL'] ?? '';
-
 /* ------------------------------------------------------------------ *
- * Disclaimer  (CLAUDE.md §10)
+ * localStorage keys. Bump a version suffix to reset a changed value.
  * ------------------------------------------------------------------ */
 
-/** localStorage keys. Bump a version suffix to re-show a changed disclaimer. */
+// ---------------------------------------------------------------------------
+// Route planner (Phase 9) — routing runs in the browser on the `walk` layer.
+// ---------------------------------------------------------------------------
+
+/** Walking pace for the time estimate, km/h — dog walks are sniff-paced. */
+export const ROUTE_WALK_KMH = 4;
+/** A waypoint further than this from any path cannot be snapped. */
+export const ROUTE_MAX_SNAP_M = 250;
+/** Graph tiles loaded around the waypoints' bounding box, metres. */
+export const ROUTE_TILE_MARGIN_M = 800;
+/** Upper bound on graph tiles per route (~1.5 km each at 52° N). */
+export const ROUTE_MAX_TILES = 64;
+/** At most this many waypoints per route (also the share-link limit). */
+export const ROUTE_MAX_WAYPOINTS = 30;
+/** Saved routes kept in localStorage. */
+export const ROUTE_MAX_SAVED = 50;
+/** Cost per metre by highway class: 1 = preferred. */
+export const ROUTE_HIGHWAY_FACTOR = { preferred: 1, normal: 1.25, tertiary: 2, major: 3.5, unknown: 1.5 } as const;
+/** Cost multiplier for surfaces in each live paw band. */
+export const ROUTE_HEAT_FACTOR = { fine: 1, caution: 1.8, danger: 4 } as const;
+/**
+ * Canopy fraction per shade level, fed into the paw model's shade factor
+ * (1 − 0.7 × canopy). Forest/wood dense, scrub medium, tree row light.
+ */
+export const SHADE_CANOPY_FRACTION = { sun: 0, light: 0.3, medium: 0.5, dense: 0.85 } as const;
+/**
+ * How far to each side of a path to look for woodland, metres. Woods are often
+ * mapped with paths as gaps between polygons: wooded on both sides = in the
+ * wood, on one side = forest edge (light shade).
+ */
+export const ROUTE_SHADE_SIDE_REACH_M = 8;
+/** A path within this distance of a tree row counts as lightly shaded, metres. */
+export const ROUTE_TREE_ROW_REACH_M = 10;
+/**
+ * Extra cost per metre in full sun, by felt temperature (°C, from): the route
+ * leans into shade as it gets warmer — heat stress is about the dog, not the
+ * path. Light shade (tree rows) pays half the extra. Checked high to low.
+ */
+export const ROUTE_SUN_FACTOR_BY_FELT_C = [
+  { fromC: DOG_HEAT_BANDS_C.veryHigh, factor: 1.6 },
+  { fromC: DOG_HEAT_BANDS_C.high, factor: 1.35 },
+  { fromC: DOG_HEAT_BANDS_C.moderate, factor: 1.15 },
+] as const;
+/** Bonus for explicitly off-leash ways (dog=unleashed/designated). */
+export const ROUTE_OFF_LEASH_FACTOR = 0.85;
+/** Share of the asphalt heat penalty applied to ways with no mapped surface. */
+export const ROUTE_UNKNOWN_SURFACE_HEAT_SHARE = 0.5;
+
 export const STORAGE_KEYS = {
   lastLocation: 'pawpath.lastLocation.v1',
   disclaimerAccepted: 'pawpath.disclaimer.v1',
-  enabledLayers: 'pawpath.layers.v1',
-} as const;
-
-/* ------------------------------------------------------------------ *
- * Recon page (Phase 1, dev only)
- * ------------------------------------------------------------------ */
-
-export const RECON_DEFAULT_RADIUS_KM = 2;
-
-/**
- * Politeness pacing for the recon page. Run 1 fired queries back-to-back and
- * spent most of its wall clock in Overpass's queue: healthy responses came back
- * in 1–3 s, while the 35–80 s times and every 504 were our own burst waiting on
- * itself. Slowing down makes a survey both kinder and *faster* end to end.
- */
-export const RECON_MIN_QUERY_INTERVAL_MS = 5_000;
-
-/** Pause between presets when surveying several locations in one go. */
-export const RECON_PRESET_INTERVAL_MS = 30_000;
-
-/**
- * Test locations for the coverage survey. Two home markets plus two controls
- * outside Europe — one dense-mapping city and one where OSM amenity mapping is
- * known to be thinner, so the "elsewhere" answer is not one lucky sample.
- */
-export const RECON_PRESETS = [
-  { label: 'Almere, NL', lat: 52.3508, lng: 5.2647, country: 'NL' },
-  { label: 'Leipzig, DE', lat: 51.3397, lng: 12.3731, country: 'DE' },
-  { label: 'Melbourne, AU', lat: -37.8136, lng: 144.9631, country: 'AU' },
-  { label: 'Bogotá, CO', lat: 4.711, lng: -74.0721, country: 'CO' },
-] as const;
-
-/**
- * Coverage verdict thresholds for the recon table, expressed as features per
- * km². Rough, but they turn a raw count into the yes/no answer Phase 1 needs:
- * is there enough data here to justify a toggle?
- */
-export const RECON_DENSITY_THRESHOLDS = {
-  /** At or above this, the layer is clearly worth a toggle. */
-  good: 1.0,
-  /** Between `thin` and `good`: usable, but sparse enough to feel empty. */
-  thin: 0.2,
+  enabledLayers: 'pawpath.layers.v2',
+  disabledLevels: 'pawpath.disabledLevels.v1',
+  conditionsCard: 'pawpath.conditionsCard.v1',
+  /** Prefix: one entry per grid cell, `${prefix}${lat},${lng}`. */
+  conditionsCachePrefix: 'pawpath.conditions.v1:',
+  savedRoutes: 'pawpath.routes.v1',
 } as const;

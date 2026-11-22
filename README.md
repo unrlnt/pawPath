@@ -1,135 +1,55 @@
 # PawPath
 
-A no-login map of the things that matter when you walk a dog: shade, off-leash
-areas, water warnings, benches, bins, bag dispensers, drinking water, path
-surface, and live conditions.
+A free, no-login map for planning today's dog walk: paths that are kind to
+paws right now, shade, off-leash areas, official bathing spots, benches, bins,
+bag dispensers, drinking water, live conditions — and a route planner that
+prefers cool surfaces and shade in the heat. Routes save on your device and
+share as a link; there are no accounts and nothing is tracked.
 
 `CLAUDE.md` is the spec and the source of truth. Read it before changing
 anything.
 
-## Status
+## How it works
 
-Phases 1, 1.6 and 2 are done: the map shell is up, with the tile grid, the
-IndexedDB cache and the Overpass retry policy behind it. Features render as
-uniform dots — symbols and filters are Phase 4.
+The map data is **OpenStreetMap**, pre-processed once a week into our own
+vector tiles (`pawpath-YYYYMMDD.pmtiles`) and served as a static file. The
+browser loads only the tiles it looks at. There is no backend and no API key.
 
-## Running
+```
+src/data/layers.ts          the ONE definition of every layer, tag and level
+  └─ tools/tiles/generateSchema.ts → pawpath.schema.yml (Planetiler)
+       └─ tools/tiles/build.sh     → public/tiles/pawpath-*.pmtiles + manifest.json
+```
+
+## Running locally
 
 ```bash
-cp .env.example .env.local   # add a free MapTiler key, or the map won't render
 npm install
-npm run dev        # http://localhost:5173
-npm run typecheck  # tsc --noEmit, strict
-npm test           # vitest, pure functions and the cache wrapper
-npm run build      # typecheck + static build into dist/
+# Build a small tile set once (needs java 21 + osmium-tool), e.g. Flevoland:
+curl -o data/flevoland.osm.pbf https://download.geofabrik.de/europe/netherlands/flevoland-latest.osm.pbf
+npm run tiles:build -- public/tiles data/flevoland.osm.pbf
+npm run dev          # http://localhost:5173
 ```
-
-`dist/` is a static bundle; Cloudflare Pages serves it as-is. There is no server.
-
-## Diagnostics
-
-In dev, the map page has a **dev** button (bottom left) with:
-
-- **cache inspector** — entries, approximate size, hits/misses, evictions, clear;
-- **session request budget** — against the Overpass usage policy's ~10,000
-  requests / ~1 GB per user per day safety margin;
-- **instance health** — which instances are parked by the circuit breaker or
-  demoted for refusing programmatic access;
-- **connectivity tester** — one trivial `out count` per instance, no retries,
-  bypassing the tile pipeline entirely. This is the first thing to run when the
-  map has no data: it answers "are the instances reachable from *this* browser"
-  without the cache, the retry loop or the breaker confusing the picture.
-
-## Overpass etiquette
-
-The public instances are volunteer-funded, and this app must not be the reason
-one of them starts blocking browsers. The rules are in
-[CLAUDE.md](CLAUDE.md) §5 and enforced in `src/config.ts`:
-
-- one request at a time, never parallel — slots are shared across an IP block;
-- retry the same instance with jittered backoff before rotating;
-- on 429, read `/api/status` and wait for a real slot instead of guessing;
-- never retry 400 or 406;
-- a per-session request and byte budget, well inside the documented margin.
-
-Browsers cannot set `User-Agent` — it is a forbidden header — so the app
-identifies itself in a comment at the top of every generated query, and the
-browser's `Origin`/`Referer` identify the domain. Keep `APP_CONTACT_URL`
-current; see below.
-
-## The recon page
-
-**Dev builds only** — excluded from production at the route level.
 
 ```bash
-npm run dev
+npm run typecheck    # tsc --noEmit, strict (app + tools)
+npm test             # vitest — includes the shared layer examples
+npm run tiles:verify # the same examples, run by Planetiler against the schema
+npm run tiles:coverage -- public/tiles/pawpath-YYYYMMDD.pmtiles 52.3508 5.2647
+npm run build        # static bundle into dist/
 ```
 
-Then open either URL; they are equivalent and neither needs a code change:
+Changing a layer: edit `src/data/layers.ts`, add a case to
+`src/data/layerExamples.ts`, run `npm run tiles:schema`, rebuild the tiles.
+A test fails if the schema is stale.
 
-```
-http://localhost:5173/recon      # path form, via Vite's SPA fallback
-http://localhost:5173/#/recon    # hash form; also works on any static host
-```
-
-The home page links to it in dev too. In a production build both render a
-"not available" notice.
-
-It answers the Phase 1 question: does each layer have enough OSM coverage to
-justify a toggle, here and elsewhere? Pick a preset (or type a coordinate and a
-radius), run it, and read the table: per-tag feature counts, features per km²,
-a coverage verdict, query timings, the exact Overpass QL that produced each
-number, and a Markdown summary to paste into `CLAUDE.md` §12.
-
-It queries the public Overpass instances directly, one request at a time. Don't
-leave it running in a loop.
-
-## Layout
-
-```
-src/
-  config.ts               every tunable: tile size, TTLs, zoom, paw k values, thresholds
-  data/sources/
-    index.ts              the data layer's public surface — UI imports from here only
-    tileSource.ts         TileSource interface, Feature type, TileSourceError
-    layers.ts             the declarative layer → OSM tag map (add layers HERE)
-    overpassQuery.ts      Overpass QL generation, driven by layers.ts
-    overpassClient.ts     transport: instance rotation, timeouts, throttling
-    overpassTileSource.ts TileSource implementation + normalisation
-  lib/                    pure, browser-free, unit-tested
-    tiles.ts              the ~2 km query grid
-    surface.ts            OSM surface=* → paw-heat model kinds
-    recon.ts              recon result shapes, verdicts, Markdown summary
-  components/recon/       the Phase 1 recon page
-```
-
-### Adding a layer
-
-Add an entry to `LAYERS` in `src/data/sources/layers.ts`. Query building,
-normalisation, level derivation and the recon page all pick it up. Nothing else
-needs to change.
-
-## Contact identification — needs setting
-
-`APP_CONTACT_URL` in [src/config.ts](src/config.ts) is currently **unset**.
-
-Browsers cannot set a `User-Agent` header, so every generated Overpass query
-carries an identifying comment instead, and this URL is the whole of its value —
-it is how an instance operator reaches us before deciding to block us:
-
-```
-// PawPath (https://example.org/pawpath) — tile=2km:2913:325 layers=benches+waste
-```
-
-While it is unset, queries say `contact URL not set — see APP_CONTACT_URL in
-src/config.ts` rather than carrying an invented link, which is honest but is not
-a contact. **Set it to a real, reachable public URL — the repository or the
-deployed site — before posting the app publicly**, and keep it current: a dead
-link here is the same as no contact at all. It is one line in `config.ts` and
-nothing else references the value directly.
+Deployment: two containers via `docker-compose.yml` — made for Coolify, works
+with plain Docker. See [docs/deployment.md](docs/deployment.md).
 
 ## Attribution
 
-Map data © OpenStreetMap contributors, ODbL. Queries go to the public Overpass
-API instances. Attribution is a licence requirement and must stay visible once
-the map exists.
+Map data © OpenStreetMap contributors, ODbL. Basemap © OpenFreeMap /
+OpenMapTiles. Bathing sites © European Environment Agency. Weather data by
+Open-Meteo.com (CC BY 4.0). Place search by
+Photon. Attribution is a licence requirement and
+stays visible on the map.

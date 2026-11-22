@@ -8,7 +8,12 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "tiles:schema": "tsx tools/tiles/generateSchema.ts",
+    "tiles:verify": "tsx tools/tiles/generateSchema.ts --check && java -jar ${PLANETILER_JAR:-.tiles-work/planetiler.jar} verify tools/tiles/pawpath.schema.yml",
+    "tiles:build": "tools/tiles/build.sh",
+    "tiles:coverage": "tsx tools/tiles/coverage.ts",
+    "tiles:route-check": "tsx tools/tiles/route-check.ts"
   },
   "keywords": [],
   "author": "",
@@ -16,20 +21,28 @@
   "type": "module",
   "private": "true",
   "dependencies": {
-    "idb-keyval": "^6.3.0",
+    "@fontsource/fredoka": "^5.3.0",
+    "@fontsource/nunito": "^5.3.0",
+    "@mapbox/vector-tile": "^3.0.0",
     "maplibre-gl": "^5.24.0",
+    "pbf": "^5.2.0",
+    "pmtiles": "^4.5.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@types/geojson": "^7946.0.16",
+    "@types/node": "^22.20.5",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.5.4",
     "postcss": "^8.5.26",
     "tailwindcss": "^3.4.19",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vite": "^6.4.3",
-    "vitest": "^2.1.9"
+    "vitest": "^2.1.9",
+    "yaml": "^2.9.1"
   }
 }
