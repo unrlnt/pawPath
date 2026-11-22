@@ -23,7 +23,7 @@ secrets, no API keys.
    **Public Repository** (works while the repo is public) or **Private
    Repository (with GitHub App)** — the GitHub App also gives you automatic
    deploys on every push.
-3. Repository `unrlnt/dogWalkMap`, the branch from step 1.
+3. Repository `unrlnt/pawPath`, the branch from step 1.
    **Build Pack: Docker Compose**, Docker Compose location
    `/docker-compose.yml`. Continue.
 4. **Domains:** Coolify lists the two services. Set your domain on **`web`**

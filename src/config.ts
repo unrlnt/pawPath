@@ -20,7 +20,7 @@ export const APP_NAME = 'PawPath';
  * checklist). Shown in the disclaimer as "source & feedback". It resolves
  * once the repository is public.
  */
-export const APP_CONTACT_URL = 'https://github.com/unrlnt/dogWalkMap';
+export const APP_CONTACT_URL = 'https://github.com/unrlnt/pawPath';
 
 /* ------------------------------------------------------------------ *
  * Our vector tiles  (CLAUDE.md §3, §8)

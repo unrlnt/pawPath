@@ -545,8 +545,8 @@ Constraints that keep this compatible with §2:
 - [~] Phase 7 — Public launch *(code done 2026-11-22: error/offline/first-build
       states, attribution always visible, security headers, cacheable chunks,
       metadata, NL+DE default, Coolify guide; production image tested here.
-      **Owner steps left:** merge to `main`, deploy on Coolify, GitHub privacy
-      settings, then flip the repository to public.)*
+      Public repo `unrlnt/pawPath` created with clean history only.
+      **Owner steps left:** merge the PR to `main`, deploy on Coolify.)*
 - [ ] Phase 8 — Regional enrichment (post-launch)
 - [x] Phase 9 — Route planner *(done 2026-11-22, pulled forward before
       Phase 7: in-browser A* on the `walk` tile layer, dog- and heat-aware;
@@ -720,8 +720,14 @@ proxy certificate in a throwaway copy), Flevoland tiles mounted:
   countries, a first build in under an hour, ~10 GB of temporary disk.
 - **Empty `water-warnings.json`** written by the builder when missing — same
   meaning as no file, without a 404 per visitor every 30 minutes.
-- **`APP_CONTACT_URL`** = `https://github.com/unrlnt/dogWalkMap`, shown as
-  "Source & feedback" in the disclaimer; it resolves once the repo is public.
+- **`APP_CONTACT_URL`** = `https://github.com/unrlnt/pawPath`, shown as
+  "Source & feedback" in the disclaimer.
+- **Public repository: `unrlnt/pawPath`, a fresh repo** (owner, 2026-11-22).
+  GitHub still served the pre-rewrite `init` commit (personal e-mail) of the
+  original repo by its SHA, although no branch or PR referenced it. Instead
+  of making that repo public, only the clean history was pushed to a new,
+  empty public repo; the original stays private as `dogWalkMap`. PawPath is
+  also the site's official name.
 - **Share links and favourites** (Phase 7 list) are covered by the route
   planner's share link and "My walks"; no separate place favourites.
 - **Open-Meteo stays free-tier compliant**: ads are off, nothing commercial.
