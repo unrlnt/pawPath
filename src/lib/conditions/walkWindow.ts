@@ -7,12 +7,21 @@
  */
 
 import { RAIN_PROBABILITY, UV_BANDS, WALK_WINDOW_HOURS } from '../../config';
+import { heatBand } from './bands';
 import { pawEstimate, type PawEstimate } from './paw';
 import type { HourPoint } from './types';
 
 export type HourScore = 'good' | 'ok' | 'poor';
 
-export type ScoreReason = 'pawDanger' | 'pawCaution' | 'rainLikely' | 'rainPossible' | 'uvVeryHigh' | 'uvHigh';
+export type ScoreReason =
+  | 'heatExtreme'
+  | 'heatHigh'
+  | 'pawDanger'
+  | 'pawCaution'
+  | 'rainLikely'
+  | 'rainPossible'
+  | 'uvVeryHigh'
+  | 'uvHigh';
 
 export interface ScoredHour {
   readonly hour: HourPoint;
@@ -40,6 +49,11 @@ export function scoreHour(hour: HourPoint, options: ScoreOptions = {}): ScoredHo
     surface: 'asphalt',
   });
   const reasons: ScoreReason[] = [];
+  // Heat stress is about the whole location, not the path underfoot — night
+  // and shade do not make 34 °C safe. Listed first because it matters most.
+  const heat = heatBand(hour.apparentC);
+  if (heat === 'extreme') reasons.push('heatExtreme');
+  else if (heat === 'veryHigh') reasons.push('heatHigh');
   if (paw.band === 'danger') reasons.push('pawDanger');
   else if (paw.band === 'caution') reasons.push('pawCaution');
   if (options.shortRangeDry !== true) {
@@ -49,7 +63,9 @@ export function scoreHour(hour: HourPoint, options: ScoreOptions = {}): ScoredHo
   if (hour.uvIndex >= UV_BANDS.veryHigh) reasons.push('uvVeryHigh');
   else if (hour.uvIndex >= UV_BANDS.high) reasons.push('uvHigh');
 
-  const poor = reasons.some((r) => r === 'pawDanger' || r === 'rainLikely' || r === 'uvVeryHigh');
+  const poor = reasons.some(
+    (r) => r === 'heatExtreme' || r === 'pawDanger' || r === 'rainLikely' || r === 'uvVeryHigh',
+  );
   const score: HourScore = poor ? 'poor' : reasons.length > 0 ? 'ok' : 'good';
   return { hour, score, reasons, paw };
 }

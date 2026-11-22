@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { aqiBand, uvBand } from './bands';
+import { aqiBand, heatBand, notablePollen, uvBand } from './bands';
 import { pawBand, pawEstimate, pawSurfaceTempC } from './paw';
 import { rainOutlook } from './rainWindow';
 import { countriesAt, seasonalAdvisories, type SeasonalInput } from './seasonal';
@@ -16,6 +16,7 @@ function hour(offset: number, patch: Partial<HourPoint> = {}): HourPoint {
   return {
     time: T0 + offset * HOUR,
     airC: 18,
+    apparentC: 18,
     precipProbability: 0,
     precipMm: 0,
     uvIndex: 2,
@@ -214,7 +215,7 @@ describe('summarise', () => {
     dailyMeans: [],
     sunrise: undefined,
     sunset: undefined,
-    airQuality: [{ time: T0, aqi: 25, pm25: 6, pm10: 10, ozone: 60 }],
+    airQuality: [{ time: T0, aqi: 25, pm25: 6, pm10: 10, ozone: 60, pollen: { grass: 60, birch: 5 } }],
   };
 
   it('builds the card model for a hot moment', () => {
@@ -253,5 +254,36 @@ describe('card consistency', () => {
     const summary = summarise(conditions, T0 + 60_000);
     expect(summary?.verdict).toBe('good');
     expect(summary?.walkWindow?.startsNow).toBe(true);
+  });
+});
+
+
+describe('heat stress (general, not per path)', () => {
+  it('bands the felt temperature', () => {
+    expect([15, 20, 24, 28, 32].map(heatBand)).toEqual(['low', 'moderate', 'high', 'veryHigh', 'extreme']);
+  });
+
+  it('counts at night too: darkness does not make heat safe', () => {
+    const night = hour(0, { airC: 30, apparentC: 33, shortwaveWm2: 0, isDay: false, uvIndex: 0 });
+    const scored = scoreHour(night);
+    expect(scored.reasons).toContain('heatExtreme');
+    expect(scored.score).toBe('poor');
+  });
+
+  it('a very hot hour is "ok" at best, extreme heat is "poor"', () => {
+    expect(scoreHour(hour(0, { apparentC: 29 })).score).toBe('ok');
+    expect(scoreHour(hour(0, { apparentC: 33 })).score).toBe('poor');
+  });
+});
+
+describe('pollen', () => {
+  it('lists only moderate-or-higher types, high first', () => {
+    expect(notablePollen({ grass: 60, birch: 70, alder: 5 })).toEqual([
+      { kind: 'grass', grains: 60, level: 'high' },
+      { kind: 'birch', grains: 70, level: 'moderate' },
+    ]);
+  });
+  it('is empty where CAMS has no pollen (outside Europe)', () => {
+    expect(notablePollen({})).toEqual([]);
   });
 });

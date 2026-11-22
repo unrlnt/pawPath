@@ -161,6 +161,27 @@ export const RAIN_PROBABILITY = { ok: 30, poor: 60 } as const;
 /** A 15-minute slot with at least this much rain (mm) counts as wet. */
 export const RAIN_WET_MM_PER_15MIN = 0.1;
 
+/**
+ * Heat stress for dogs, on the FELT (apparent) temperature at the location —
+ * a general factor, not per path (§7). Rough vet guidance: risk rises from
+ * ~20 °C for flat-faced, old, overweight or thick-coated dogs, and from ~28 °C
+ * for every dog. Approximate by nature; worded as advice.
+ */
+export const DOG_HEAT_BANDS_C = { moderate: 20, high: 24, veryHigh: 28, extreme: 32 } as const;
+
+/**
+ * Pollen (grains/m³, CAMS, Europe only) — shown as a note, never in the
+ * verdict. Thresholds approximate the usual low/moderate/high levels per type.
+ */
+export const POLLEN_BANDS = {
+  grass: { moderate: 20, high: 50 },
+  birch: { moderate: 50, high: 100 },
+  alder: { moderate: 50, high: 100 },
+  mugwort: { moderate: 20, high: 50 },
+  ragweed: { moderate: 10, high: 50 },
+  olive: { moderate: 50, high: 200 },
+} as const;
+
 /** How far ahead the short-range rain window looks. */
 export const RAIN_WINDOW_MINUTES = 120;
 
@@ -306,6 +327,7 @@ export const STORAGE_KEYS = {
   lastLocation: 'pawpath.lastLocation.v1',
   disclaimerAccepted: 'pawpath.disclaimer.v1',
   enabledLayers: 'pawpath.layers.v2',
+  disabledLevels: 'pawpath.disabledLevels.v1',
   conditionsCard: 'pawpath.conditionsCard.v1',
   /** Prefix: one entry per grid cell, `${prefix}${lat},${lng}`. */
   conditionsCachePrefix: 'pawpath.conditions.v1:',

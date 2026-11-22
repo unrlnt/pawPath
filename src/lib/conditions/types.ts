@@ -10,6 +10,8 @@
 export interface HourPoint {
   readonly time: number;
   readonly airC: number;
+  /** Felt temperature (heat stress); equals airC when unavailable. */
+  readonly apparentC: number;
   /** 0–100. */
   readonly precipProbability: number;
   readonly precipMm: number;
@@ -40,7 +42,12 @@ export interface AirQualityPoint {
   readonly pm25: number | undefined;
   readonly pm10: number | undefined;
   readonly ozone: number | undefined;
+  /** grains/m³ per pollen type; empty outside Europe. */
+  readonly pollen: Readonly<Partial<Record<PollenKind, number>>>;
 }
+
+export const POLLEN_KINDS = ['grass', 'birch', 'alder', 'mugwort', 'ragweed', 'olive'] as const;
+export type PollenKind = (typeof POLLEN_KINDS)[number];
 
 export interface Conditions {
   readonly lat: number;

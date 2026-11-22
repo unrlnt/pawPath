@@ -61,12 +61,22 @@ export function Disclaimer() {
 export function LayerToggles({
   enabled,
   onToggle,
+  onOpenFilters,
 }: {
   enabled: readonly LayerKey[];
   onToggle: (layer: LayerKey) => void;
+  onOpenFilters: () => void;
 }) {
   return (
     <div className="pointer-events-auto flex gap-2 overflow-x-auto px-2 pb-1 [scrollbar-width:none]">
+      <button
+        type="button"
+        onClick={onOpenFilters}
+        aria-label="Open filters"
+        className="flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-full bg-ink px-3.5 text-sm font-bold text-cream shadow-soft"
+      >
+        <span aria-hidden>☰</span> Filters
+      </button>
       {ALL_LAYERS.map((layer) => {
         const on = enabled.includes(layer.key);
         return (

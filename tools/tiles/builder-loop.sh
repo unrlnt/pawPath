@@ -7,7 +7,10 @@
 # stay in service meanwhile.
 #
 # Environment:
-#   TILE_REGIONS        name of a tools/tiles/sources-<name>.txt list (default: planet)
+#   TILE_REGIONS        either the name of a preset list tools/tiles/sources-<name>.txt
+#                       (planet, nl-de, flevoland), or a comma-separated list of
+#                       Geofabrik region ids, e.g. "europe/netherlands,europe/belgium".
+#                       See https://download.geofabrik.de for the ids. Default: planet
 #   OUT_DIR             shared tiles volume (default: /srv/tiles)
 #   WORK_DIR            temporary space, ~50 GB for the planet (default: /work)
 #   REBUILD_AFTER_DAYS  default 7
@@ -21,13 +24,20 @@ OUT_DIR=${OUT_DIR:-/srv/tiles}
 export WORK_DIR=${WORK_DIR:-/work}
 REBUILD_AFTER_DAYS=${REBUILD_AFTER_DAYS:-7}
 CHECK_INTERVAL=${CHECK_INTERVAL:-6h}
-SOURCES_FILE="$TILES_DIR/sources-$TILE_REGIONS.txt"
-
 log() { printf '[builder %s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 
-if [[ ! -f "$SOURCES_FILE" ]]; then
-  log "no region list $SOURCES_FILE — set TILE_REGIONS to one of:"
-  ls "$TILES_DIR"/sources-*.txt | sed 's#.*/sources-##; s#\.txt$##'
+# Resolve TILE_REGIONS to a list of extract URLs, once, at start-up.
+PRESET="$TILES_DIR/sources-$TILE_REGIONS.txt"
+if [[ -f "$PRESET" ]]; then
+  mapfile -t SOURCES < <(grep -v '^\s*#' "$PRESET" | grep -v '^\s*$')
+elif [[ "$TILE_REGIONS" =~ ^[a-z0-9/-]+(,[a-z0-9/-]+)*$ ]]; then
+  SOURCES=()
+  IFS=',' read -ra IDS <<< "$TILE_REGIONS"
+  for id in "${IDS[@]}"; do SOURCES+=("https://download.geofabrik.de/$id-latest.osm.pbf"); done
+else
+  log "TILE_REGIONS='$TILE_REGIONS' is neither a preset nor a list of Geofabrik ids."
+  log "presets: $(ls "$TILES_DIR"/sources-*.txt | sed 's#.*/sources-##; s#\.txt$##' | tr '\n' ' ')"
+  log "or e.g.: europe/netherlands,europe/germany,europe/belgium"
   exit 64
 fi
 
@@ -39,12 +49,11 @@ needs_build() {
   return 1
 }
 
-log "watching $OUT_DIR (regions: $TILE_REGIONS, rebuild after ${REBUILD_AFTER_DAYS}d)"
+log "watching $OUT_DIR (regions: $TILE_REGIONS → ${#SOURCES[@]} extract(s), rebuild after ${REBUILD_AFTER_DAYS}d)"
 while true; do
   if needs_build; then
     log "starting build"
-    # shellcheck disable=SC2046 # one URL per word, by design
-    if "$TILES_DIR/build.sh" "$OUT_DIR" $(grep -v '^\s*#' "$SOURCES_FILE"); then
+    if "$TILES_DIR/build.sh" "$OUT_DIR" "${SOURCES[@]}"; then
       echo "$TILE_REGIONS" > "$OUT_DIR/.regions"
       log "build finished"
     else

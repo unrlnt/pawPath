@@ -19,7 +19,7 @@ They share the `tiles` volume: `tiles` writes, `web` reads.
 
    | Variable | Default | Meaning |
    |---|---|---|
-   | `TILE_REGIONS` | `planet` | Which `tools/tiles/sources-<name>.txt` to build: `planet`, `nl-de`, `flevoland` |
+   | `TILE_REGIONS` | `planet` | A preset (`planet`, `nl-de`, `flevoland`) **or** any comma-separated list of [Geofabrik](https://download.geofabrik.de) region ids, e.g. `europe/netherlands,europe/germany,europe/belgium`. Changing it triggers a rebuild — this is the "which countries" switch. |
    | `JAVA_XMX` | `4g` | Planetiler heap; raise for the planet if the build reports memory pressure |
    | `REBUILD_AFTER_DAYS` | `7` | Rebuild interval |
    | `VITE_MAP_STYLE_URL` | OpenFreeMap | Build-time basemap override (public value) |

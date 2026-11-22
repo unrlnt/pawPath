@@ -10,7 +10,7 @@
 import { useState } from 'react';
 
 import { STORAGE_KEYS } from '../../config';
-import { AQI_LABELS, UV_LABELS } from '../../lib/conditions/bands';
+import { AQI_LABELS, HEAT_ADVICE, UV_LABELS } from '../../lib/conditions/bands';
 import type { PawBand, PawEstimate } from '../../lib/conditions/paw';
 import type { RainOutlook } from '../../lib/conditions/rainWindow';
 import type { Severity } from '../../lib/conditions/seasonal';
@@ -44,6 +44,8 @@ const SEVERITY_PILL: Record<Severity, string> = {
 };
 
 const REASON_TEXT: Record<ScoreReason, string> = {
+  heatExtreme: 'Dangerous heat for dogs — only quick breaks in the shade.',
+  heatHigh: 'Very hot for dogs — keep it short and pick a shady route.',
   pawDanger: 'Pavement in the sun is hot enough to burn paws.',
   pawCaution: 'Pavement in the sun is getting hot — stick to grass and shade.',
   rainLikely: 'Rain is likely.',
@@ -181,6 +183,15 @@ export default function ConditionsCard({ state }: { state: ConditionsState }) {
             </p>
           </div>
 
+          {summary.heat.band !== 'low' ? (
+            <div>
+              <h3 className="mb-1 font-display text-sm font-semibold text-inkSoft">
+                Heat for dogs · feels like {Math.round(summary.heat.apparentC)} °C
+              </h3>
+              <p>{HEAT_ADVICE[summary.heat.band]}</p>
+            </div>
+          ) : null}
+
           <div>
             <h3 className="mb-1 font-display text-sm font-semibold text-inkSoft">When to go</h3>
             <p>{windowText(summary.walkWindow, fmt)}</p>
@@ -199,6 +210,14 @@ export default function ConditionsCard({ state }: { state: ConditionsState }) {
                 Air {AQI_LABELS[summary.air.band]} · EAQI {Math.round(summary.air.aqi)}
               </span>
             ) : null}
+            {summary.pollen.map((reading) => (
+              <span
+                key={reading.kind}
+                className={`rounded-full px-3 py-1 ${reading.level === 'high' ? 'bg-sunny' : 'bg-creamDeep'}`}
+              >
+                {reading.kind} pollen · {reading.level}
+              </span>
+            ))}
           </div>
 
           {summary.advisories.length > 0 ? (

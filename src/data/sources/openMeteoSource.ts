@@ -18,12 +18,14 @@ import {
   OPEN_METEO_FORECAST_URL,
   STORAGE_KEYS,
 } from '../../config';
-import type {
-  AirQualityPoint,
-  Conditions,
-  DailyMean,
-  HourPoint,
-  RainSlot,
+import {
+  POLLEN_KINDS,
+  type AirQualityPoint,
+  type Conditions,
+  type DailyMean,
+  type HourPoint,
+  type PollenKind,
+  type RainSlot,
 } from '../../lib/conditions/types';
 import { readStored, writeStored } from '../../lib/storage';
 
@@ -60,6 +62,7 @@ export function parseForecast(raw: unknown, lat: number, lng: number, now: numbe
   if (times.length === 0) return undefined;
 
   const air = numbers(hourly, 'temperature_2m');
+  const apparent = numbers(hourly, 'apparent_temperature');
   const prob = numbers(hourly, 'precipitation_probability');
   const precip = numbers(hourly, 'precipitation');
   const uv = numbers(hourly, 'uv_index');
@@ -75,6 +78,7 @@ export function parseForecast(raw: unknown, lat: number, lng: number, now: numbe
     hours.push({
       time: t * 1000,
       airC,
+      apparentC: apparent[i] ?? airC,
       precipProbability: prob[i] ?? 0,
       precipMm: precip[i] ?? 0,
       uvIndex: uv[i] ?? 0,
@@ -132,11 +136,17 @@ export function parseAirQuality(raw: unknown): AirQualityPoint[] | undefined {
   const pm25 = numbers(hourly, 'pm2_5');
   const pm10 = numbers(hourly, 'pm10');
   const ozone = numbers(hourly, 'ozone');
+  const pollenSeries = POLLEN_KINDS.map((kind) => [kind, numbers(hourly, `${kind}_pollen`)] as const);
   const points: AirQualityPoint[] = [];
   times.forEach((t, i) => {
     const value = aqi[i];
     if (t === undefined || value === undefined) return;
-    points.push({ time: t * 1000, aqi: value, pm25: pm25[i], pm10: pm10[i], ozone: ozone[i] });
+    const pollen: Partial<Record<PollenKind, number>> = {};
+    for (const [kind, series] of pollenSeries) {
+      const grains = series[i];
+      if (grains !== undefined) pollen[kind] = grains;
+    }
+    points.push({ time: t * 1000, aqi: value, pm25: pm25[i], pm10: pm10[i], ozone: ozone[i], pollen });
   });
   return points.length > 0 ? points : undefined;
 }
@@ -213,7 +223,7 @@ export async function loadConditions(
     past_days: String(CONDITIONS_PAST_DAYS),
     forecast_days: '2',
     hourly:
-      'temperature_2m,precipitation_probability,precipitation,uv_index,shortwave_radiation,wind_speed_10m,is_day,snowfall',
+      'temperature_2m,apparent_temperature,precipitation_probability,precipitation,uv_index,shortwave_radiation,wind_speed_10m,is_day,snowfall',
     minutely_15: 'precipitation',
     forecast_minutely_15: '12',
     daily: 'temperature_2m_mean,sunrise,sunset',
@@ -225,7 +235,7 @@ export async function loadConditions(
     longitude: lng.toFixed(2),
     timeformat: 'unixtime',
     forecast_days: '2',
-    hourly: 'european_aqi,pm2_5,pm10,ozone',
+    hourly: `european_aqi,pm2_5,pm10,ozone,${POLLEN_KINDS.map((k) => `${k}_pollen`).join(',')}`,
   }).toString();
 
   // Air quality is a nice-to-have: its failure must not sink the card.

@@ -19,9 +19,10 @@ import {
   MAP_STYLE_URL,
 } from '../../config';
 import { SOURCE_ATTRIBUTION } from '../../data/attribution';
-import { LEVEL_LABELS } from '../../data/levelLabels';
-import { LAYERS, isFeatureLevel, isLayerKey, type LayerKey } from '../../data/layers';
+import { isLayerKey, type FeatureLevel, type LayerKey } from '../../data/layers';
+import { GLYPHS, registerIcons } from '../../map/icons';
 import { PAWPATH_SOURCE_ID, pawpathLayerSpecs } from '../../map/pawpathLayers';
+import { popupModel } from '../../map/popupModel';
 import { warmBasemap } from '../../map/warmBasemap';
 import { palette } from '../../styles/tokens';
 
@@ -35,8 +36,10 @@ function registerPmtiles(): void {
 }
 
 const USER_SOURCE_ID = 'pawpath-user';
-const { specs: PAWPATH_SPECS, idsByLayer: IDS_BY_LAYER } = pawpathLayerSpecs();
-const ALL_PAWPATH_IDS = PAWPATH_SPECS.map((spec) => spec.id);
+// Ids and draw order do not depend on the filters, only the filter
+// expressions do — so the id list can be computed once.
+const { specs: BASE_SPECS, idsByLayer: IDS_BY_LAYER } = pawpathLayerSpecs([]);
+const ALL_PAWPATH_IDS = BASE_SPECS.map((spec) => spec.id);
 
 export interface Viewport {
   readonly centre: { lat: number; lng: number };
@@ -49,26 +52,72 @@ export interface MapViewProps {
   /** Absolute URL of the current .pmtiles file; undefined until the manifest loads. */
   readonly tilesUrl: string | undefined;
   readonly enabledLayers: readonly LayerKey[];
+  /** Levels switched off in the filter sheet (dog=yes until opted in). */
+  readonly disabledLevels: readonly FeatureLevel[];
   readonly userPosition: { lat: number; lng: number } | undefined;
   readonly onViewportChange: (viewport: Viewport) => void;
   readonly onDropPin: (position: { lat: number; lng: number }) => void;
 }
 
-/** Popup body built from text nodes only — OSM names are untrusted input. */
-function popupContent(layer: LayerKey, properties: Record<string, unknown>): HTMLElement {
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/** Popup body built from DOM nodes and textContent only — OSM text is untrusted input. */
+function popupContent(layer: LayerKey, properties: Record<string, unknown>, featureId: unknown): HTMLElement {
+  const model = popupModel(layer, properties, featureId);
   const root = document.createElement('div');
+  root.className = 'max-w-[240px]';
+
+  const head = document.createElement('div');
+  head.className = 'flex items-center gap-2';
+  if (model.icon !== undefined) {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('width', '28');
+    svg.setAttribute('height', '28');
+    svg.setAttribute('class', 'shrink-0 rounded-full p-1');
+    svg.setAttribute('style', `background:${model.icon.colour}`);
+    const glyph: { stroke?: readonly string[]; fill?: readonly string[] } = GLYPHS[model.icon.glyph];
+    for (const d of glyph.fill ?? []) {
+      const path = document.createElementNS(SVG_NS, 'path');
+      path.setAttribute('d', d);
+      path.setAttribute('fill', palette.cream);
+      svg.append(path);
+    }
+    for (const d of glyph.stroke ?? []) {
+      const path = document.createElementNS(SVG_NS, 'path');
+      path.setAttribute('d', d);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', palette.cream);
+      path.setAttribute('stroke-width', '2');
+      path.setAttribute('stroke-linecap', 'round');
+      path.setAttribute('stroke-linejoin', 'round');
+      svg.append(path);
+    }
+    head.append(svg);
+  }
   const title = document.createElement('div');
-  title.className = 'font-display text-base';
-  const level = properties['level'];
-  title.textContent =
-    typeof level === 'string' && isFeatureLevel(level) ? LEVEL_LABELS[level] : LAYERS[layer].label;
-  root.append(title);
-  const name = properties['name'];
-  if (typeof name === 'string' && name !== '') {
+  title.className = 'font-display text-base leading-tight';
+  title.textContent = model.title;
+  head.append(title);
+  root.append(head);
+
+  const add = (text: string, className: string): void => {
     const line = document.createElement('div');
-    line.className = 'text-sm text-inkSoft';
-    line.textContent = name;
+    line.className = className;
+    line.textContent = text;
     root.append(line);
+  };
+  if (model.name !== undefined) add(model.name, 'mt-1 text-sm font-bold');
+  for (const detail of model.details) add(detail, 'text-sm text-inkSoft');
+  if (model.note !== undefined) add(model.note, 'mt-1 text-sm font-bold text-ink');
+  if (model.osmUrl !== undefined) {
+    const link = document.createElement('a');
+    link.href = model.osmUrl;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.className = 'mt-2 block text-xs text-inkSoft underline';
+    link.textContent = 'Something wrong? Fix it on OpenStreetMap';
+    root.append(link);
   }
   return root;
 }
@@ -78,6 +127,7 @@ export default function MapView({
   zoom,
   tilesUrl,
   enabledLayers,
+  disabledLevels,
   userPosition,
   onViewportChange,
   onDropPin,
@@ -86,20 +136,27 @@ export default function MapView({
   const mapRef = useRef<MapLibreMap | null>(null);
   const styleReady = useRef(false);
   // Latest props for handlers registered once.
-  const latest = useRef({ tilesUrl, enabledLayers, userPosition, onViewportChange, onDropPin });
-  latest.current = { tilesUrl, enabledLayers, userPosition, onViewportChange, onDropPin };
+  const latest = useRef({ tilesUrl, enabledLayers, disabledLevels, userPosition, onViewportChange, onDropPin });
+  latest.current = { tilesUrl, enabledLayers, disabledLevels, userPosition, onViewportChange, onDropPin };
 
   /** Adds our source and layers if the style is ready and the URL known. Idempotent. */
   const syncPawpath = (map: MapLibreMap): void => {
     const url = latest.current.tilesUrl;
     if (!styleReady.current || url === undefined) return;
+    const { specs } = pawpathLayerSpecs(latest.current.disabledLevels);
     if (map.getSource(PAWPATH_SOURCE_ID) === undefined) {
+      registerIcons(map);
       map.addSource(PAWPATH_SOURCE_ID, {
         type: 'vector',
         url: `pmtiles://${url}`,
         attribution: `<a href="${SOURCE_ATTRIBUTION.osm.url}" target="_blank" rel="noopener">${SOURCE_ATTRIBUTION.osm.label}</a>`,
       });
-      for (const spec of PAWPATH_SPECS) map.addLayer(spec);
+      for (const spec of specs) map.addLayer(spec);
+    } else {
+      // Level filters changed: swap the filter expressions in place.
+      for (const spec of specs) {
+        if ('filter' in spec && spec.filter !== undefined) map.setFilter(spec.id, spec.filter);
+      }
     }
     const enabled = new Set(latest.current.enabledLayers);
     for (const [key, ids] of Object.entries(IDS_BY_LAYER)) {
@@ -216,7 +273,7 @@ export default function MapView({
       if (hit === undefined || layer === undefined || !isLayerKey(layer)) return;
       new maplibregl.Popup({ closeButton: false, maxWidth: '260px' })
         .setLngLat(event.lngLat)
-        .setDOMContent(popupContent(layer, hit.properties))
+        .setDOMContent(popupContent(layer, hit.properties, hit.id))
         .addTo(map);
     });
 
@@ -259,7 +316,7 @@ export default function MapView({
     const map = mapRef.current;
     if (map !== null) syncPawpath(map);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tilesUrl, enabledLayers]);
+  }, [tilesUrl, enabledLayers, disabledLevels]);
 
   useEffect(() => {
     const map = mapRef.current;

@@ -3,7 +3,16 @@
  * Pure: the card only formats what this returns.
  */
 
-import { aqiBand, uvBand, type AqiBand, type UvBand } from './bands';
+import {
+  aqiBand,
+  heatBand,
+  notablePollen,
+  uvBand,
+  type AqiBand,
+  type HeatBand,
+  type PollenReading,
+  type UvBand,
+} from './bands';
 import { pawEstimate, type PawEstimate } from './paw';
 import { rainOutlook, type RainOutlook } from './rainWindow';
 import { seasonalAdvisories, type Advisory } from './seasonal';
@@ -21,6 +30,9 @@ export interface ConditionsSummary {
     readonly grassSun: PawEstimate;
   };
   readonly uv: { readonly index: number; readonly band: UvBand };
+  readonly heat: { readonly apparentC: number; readonly band: HeatBand };
+  /** Moderate-or-higher pollen right now; empty outside Europe. */
+  readonly pollen: readonly PollenReading[];
   readonly air: { readonly aqi: number; readonly band: AqiBand; readonly pm25: number | undefined } | undefined;
   readonly walkWindow: WalkWindow | undefined;
   readonly rain: RainOutlook | undefined;
@@ -76,6 +88,8 @@ export function summarise(conditions: Conditions, now: number): ConditionsSummar
       grassSun,
     },
     uv: { index: hour.uvIndex, band: uvBand(hour.uvIndex) },
+    heat: { apparentC: hour.apparentC, band: heatBand(hour.apparentC) },
+    pollen: aq === undefined ? [] : notablePollen(aq.pollen),
     air: aq === undefined ? undefined : { aqi: aq.aqi, band: aqiBand(aq.aqi), pm25: aq.pm25 },
     // Same rule as the current hour, so the card never says "good to walk"
     // and "next good stretch: later" at once.

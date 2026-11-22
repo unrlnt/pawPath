@@ -11,7 +11,14 @@ import {
   MAP_FALLBACK_CENTRE,
   STORAGE_KEYS,
 } from '../../config';
-import { isLayerKey, LAYER_KEYS, type LayerKey } from '../../data/layers';
+import {
+  DEFAULT_DISABLED_FEATURE_LEVELS,
+  isFeatureLevel,
+  isLayerKey,
+  LAYER_KEYS,
+  type FeatureLevel,
+  type LayerKey,
+} from '../../data/layers';
 import { loadTilesManifest } from '../../data/sources/tilesManifest';
 import { isStoredLocation, readStored, writeStored } from '../../lib/storage';
 import ConditionsCard from '../conditions/ConditionsCard';
@@ -25,9 +32,13 @@ import {
   ZoomHint,
   layersAwaitingZoom,
 } from './Chrome';
+import FilterSheet from './FilterSheet';
 import MapView, { type Viewport } from './MapView';
 import SearchBox from './SearchBox';
 import { useGeolocation } from './useGeolocation';
+
+const isLevelList = (value: unknown): value is FeatureLevel[] =>
+  Array.isArray(value) && value.every((entry) => typeof entry === 'string' && isFeatureLevel(entry));
 
 const isLayerList = (value: unknown): value is LayerKey[] =>
   Array.isArray(value) && value.every((entry) => typeof entry === 'string' && isLayerKey(entry));
@@ -48,6 +59,19 @@ export default function MapPage() {
   const [enabled, setEnabled] = useState<readonly LayerKey[]>(
     () => readStored(STORAGE_KEYS.enabledLayers, isLayerList) ?? [...DEFAULT_ENABLED_LAYERS],
   );
+
+  const [disabledLevels, setDisabledLevels] = useState<readonly FeatureLevel[]>(
+    () => readStored(STORAGE_KEYS.disabledLevels, isLevelList) ?? [...DEFAULT_DISABLED_FEATURE_LEVELS],
+  );
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  const toggleLevel = useCallback((level: FeatureLevel) => {
+    setDisabledLevels((current) => {
+      const next = current.includes(level) ? current.filter((l) => l !== level) : [...current, level];
+      writeStored(STORAGE_KEYS.disabledLevels, next);
+      return next;
+    });
+  }, []);
 
   const geolocation = useGeolocation();
   // Conditions where the user is, or else where they are looking.
@@ -114,6 +138,7 @@ export default function MapPage() {
           zoom={zoom}
           tilesUrl={tilesUrl}
           enabledLayers={enabled}
+          disabledLevels={disabledLevels}
           userPosition={geolocation.position ?? pin}
           onViewportChange={setViewport}
           onDropPin={(position) => {
@@ -157,8 +182,18 @@ export default function MapPage() {
         </div>
 
         <div className="pointer-events-none absolute inset-x-0 bottom-8 z-20">
-          <LayerToggles enabled={enabled} onToggle={toggleLayer} />
+          <LayerToggles enabled={enabled} onToggle={toggleLayer} onOpenFilters={() => setFiltersOpen(true)} />
         </div>
+
+        {filtersOpen ? (
+          <FilterSheet
+            enabledLayers={enabled}
+            disabledLevels={disabledLevels}
+            onToggleLayer={toggleLayer}
+            onToggleLevel={toggleLevel}
+            onClose={() => setFiltersOpen(false)}
+          />
+        ) : null}
 
         <Disclaimer />
       </div>

@@ -58,9 +58,17 @@ describe('parseForecast', () => {
 describe('parseAirQuality', () => {
   it('reads European AQI and pollutants, tolerating nulls', () => {
     const points = parseAirQuality({
-      hourly: { time: [1, 2], european_aqi: [22, null], pm2_5: [5.1, 4], pm10: [9, 8], ozone: [40, 41] },
+      hourly: {
+        time: [1, 2],
+        european_aqi: [22, null],
+        pm2_5: [5.1, 4],
+        pm10: [9, 8],
+        ozone: [40, 41],
+        grass_pollen: [12.5, 3],
+        birch_pollen: [null, null],
+      },
     });
-    expect(points).toEqual([{ time: 1000, aqi: 22, pm25: 5.1, pm10: 9, ozone: 40 }]);
+    expect(points).toEqual([{ time: 1000, aqi: 22, pm25: 5.1, pm10: 9, ozone: 40, pollen: { grass: 12.5 } }]);
   });
 
   it('is undefined when nothing usable came back', () => {

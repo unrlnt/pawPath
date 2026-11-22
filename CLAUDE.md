@@ -15,6 +15,13 @@ benches, waste bins, poop bag dispensers, drinking water, path surface, plus
 live conditions (UV, air quality, paw-burn temperature, rain and walk windows,
 seasonal hazards).
 
+**The product is planning today's walk, place by place** (owner, 2026-11-22):
+where paths are kind to paws right now, which parks allow dogs off-leash,
+where official bathing spots and warnings are, where to rest, where to find
+bag dispensers and bins — and eventually a planned route through them. Area
+summaries or per-city statistics have no value to a user; the coverage-stats
+script is a developer tool only.
+
 Primary users: the owner and his partner (Netherlands, frequently Germany).
 Secondary: anyone, anywhere — the app will be posted publicly and must not
 degrade outside the Netherlands.
@@ -236,6 +243,14 @@ Implemented rules (`src/lib/conditions/`), recorded so they are not re-derived:
   *and* the walk window, so the card never contradicts itself.
 - Verdict: the current hour's score, downgraded by air quality (EAQI ≥ 60 →
   care, ≥ 80 → wait).
+- **Day and night are not scored** (owner, 2026-11-22): people may walk when
+  they like; the card informs (sunset time) but never marks night as worse.
+- **Heat stress for dogs** (added 2026-11-22) uses the felt (apparent)
+  temperature — a property of the location, not of a path: ≥ 28 °C makes an
+  hour "ok" at best, ≥ 32 °C "poor", day or night. The card adds advice from
+  20 °C up, pointing to shady routes. Bands in `DOG_HEAT_BANDS_C`.
+- **Pollen** (added 2026-11-22, CAMS, Europe only): shown as chips at moderate
+  or high, never part of the verdict.
 
 ### Seasonal warnings
 
@@ -373,6 +388,13 @@ popups, progressive rendering.
 ### Phase 5 — Area layers
 Shade polygons, surface rendering with live paw-heat recolouring, off-leash areas.
 
+**Paw temperature per path, not per place** (owner, 2026-11-22): each path is
+coloured by the paw model for *its own* surface, from the current weather — an
+asphalt road reads hot while a grass path next to it stays green. The tiles
+already carry `surface`; the style computes the band per surface kind (k value)
+from the live estimate, so it is a style update, not a re-fetch. Stretch goal:
+use shade polygons for the canopy fraction of paths that run through them.
+
 ### Phase 6 — Water warnings
 EEA bathing water locations baked into the tiles at build time; n8n on the
 owner's server scrapes live warnings and writes `water-warnings.json` as a
@@ -396,6 +418,37 @@ favourites, deployment.
    paid plan or a self-hosted instance must be in place first.
 4. **Attribution** for every source present: OSM (ODbL), OpenFreeMap /
    OpenMapTiles, Open-Meteo (CC BY 4.0), and any enrichment source.
+
+### Phase 9 — Route planner (requested 2026-11-22)
+Plan a walk: tap waypoints, drag the line onto another path, see distance and
+the paw/shade/off-leash profile along the way; save routes (localStorage) and
+reopen them; export GPX and share as a link. Optional "walk it" mode that
+follows your position along the route (no voice turn-by-turn at first).
+
+**Recommended approach, not yet decided — keeps §2.1/§2.4 intact:** routing in
+the browser on a walking graph the weekly build produces anyway. The build
+writes small static graph chunks (walkable ways with surface, shade and
+`dog=*` attributes); the browser loads the chunks around the waypoints and
+runs A* with **dog-aware weights** (prefer cool surfaces, shade and off-leash
+areas; avoid hot asphalt in the heat). Zero server compute, works for any
+traffic, and it is the one thing no public router does. Dog walks are a few
+km, so the graph needed per route is small.
+Rejected alternatives: public routers (OSRM/Valhalla/GraphHopper demo or
+FOSSGIS servers) — usage limits, an external dependency like Overpass was,
+and no dog-specific weighting; keyed APIs (openrouteservice, GraphHopper) —
+keys would ship to every browser (§2.7); a self-hosted router — per-request
+compute on the owner's server (§2.4).
+
+### Phase 10 — Community mirrors (idea, 2026-11-22)
+Others host part of the map to share load. Feasible because tiles are static:
+- **Mirrors**: the manifest lists several hosts with the same file; the app
+  picks one. Simple, but every mirror stores the whole file.
+- **Regional shards**: a volunteer builds and hosts one region
+  (`TILE_REGIONS=europe/belgium`) and registers it; the manifest maps regions
+  to hosts, and the app adds one vector source per region in view.
+Open questions: trust (a shard can serve wrong data — sign manifests?),
+uptime (fall back to the main host), and versioning across shards. Not
+before launch; Cloudflare's free cache is likely enough until then.
 
 ### Phase 8 — Regional enrichment (post-launch)
 Official municipal/national sources added **on top of** OSM via build-time
@@ -437,11 +490,15 @@ Constraints that keep this compatible with §2:
 - [x] Phase 3 — Conditions engine *(done 2026-11-21: Open-Meteo forecast + air
       quality, paw model, walk and rain windows, seasonal advisories,
       collapsible card; verified in a headless browser at Almere with live data)*
-- [ ] Phase 4 — Symbol layers and filters
+- [x] Phase 4 — Symbol layers and filters *(done 2026-11-22: level-coded badge
+      icons, filter sheet with per-level switches persisted, popups with exact
+      values and an "edit on OpenStreetMap" link; verified in the browser)*
 - [ ] Phase 5 — Area layers
 - [ ] Phase 6 — Water warnings
 - [ ] Phase 7 — Public launch
 - [ ] Phase 8 — Regional enrichment (post-launch)
+- [ ] Phase 9 — Route planner *(requested; approach proposed, see §11)*
+- [ ] Phase 10 — Community mirrors *(idea)*
 
 ### Phase 2R — verification (2026-11-21)
 
@@ -489,7 +546,40 @@ Known after Phase 3:
   type number, but found null") — confirmed to occur with all PawPath layers
   off, so they are upstream.
 
+### Phase 4 — verification (2026-11-22)
+
+Headless Chromium, Flevoland tiles: at z17 in Almere centre 9 bench badges
+render and all 12 badge images are registered; tapping a bench opens "Bench ·
+No backrest · Made of wood · Something wrong? Fix it on OpenStreetMap" linking
+to the right OSM node. At z14.5, 12 dog-park features render; switching "Dog
+park" off in the filter sheet hides all 12, switching it on restores them, and
+the choice is stored. No page errors.
+
 ### Decisions log
+
+**Phase 4 + owner feedback (2026-11-22)**
+
+- **Icons are SVG path data in `src/map/icons.ts`**, rasterised into badges at
+  runtime (Path2D) for the map and drawn as inline SVG in the filter sheet and
+  popups — one definition, no asset pipeline. Every off-leash level has its own
+  glyph (paw, fence, leash, crossed paw, question mark), not just a colour.
+- **Level filters are live**: the filter expressions are rebuilt and swapped
+  with `setFilter` — no re-fetch, no layer re-creation. `dog=yes` stays off by
+  default and its explanation sits next to its switch.
+- **Popups**: built only from DOM nodes and `textContent` (OSM text is
+  untrusted), exact tags in words, a plain caveat for `dog=yes`, and an edit
+  link decoded from Planetiler's id (`osmId × 10 + type`, verified).
+- **Regions without an admin panel**: an admin account would break §2.2 (no
+  accounts) and §2.4 (static only). Coolify's environment page is the admin
+  switch: `TILE_REGIONS` takes a preset (`nl-de`, `planet`) or any list of
+  Geofabrik ids (`europe/netherlands,europe/belgium`); changing it rebuilds.
+- **Water is never "good to swim".** The owner asked to show "where the water
+  is good to swim"; §6 stands: only official warnings and monitored bathing
+  spots (with "not a safety guarantee") are shown, and unmonitored water is
+  not drawn. A green "safe" state would be the second-worst failure after
+  `dog=yes` as off-leash.
+- Known: a closed-way bench can appear twice in a tile (Planetiler offers a
+  closed way as line and polygon to `centroid`); invisible on the map.
 
 **Containers for Coolify (2026-11-21)**
 

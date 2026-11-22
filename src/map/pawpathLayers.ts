@@ -14,13 +14,9 @@ import type {
 } from 'maplibre-gl';
 
 import { LAYER_MIN_ZOOM } from '../config';
-import {
-  DEFAULT_DISABLED_FEATURE_LEVELS,
-  LAYER_KEYS,
-  type FeatureLevel,
-  type LayerKey,
-} from '../data/layers';
+import { LAYER_KEYS, type FeatureLevel, type LayerKey } from '../data/layers';
 import { palette, pawRisk, safety } from '../styles/tokens';
+import { ICONS, iconId } from './icons';
 
 export const PAWPATH_SOURCE_ID = 'pawpath';
 
@@ -34,13 +30,59 @@ function byLevel(colours: Partial<Record<FeatureLevel, string>>, fallback: strin
 
 const isPolygon: FilterSpecification = ['==', ['geometry-type'], 'Polygon'];
 const isLine: FilterSpecification = ['==', ['geometry-type'], 'LineString'];
-const isPoint: FilterSpecification = ['==', ['geometry-type'], 'Point'];
 
-/** Levels hidden until the user opts in — `dog=yes` above all (§6). */
-const levelEnabled: FilterSpecification = [
-  '!',
-  ['in', ['coalesce', ['get', 'level'], ''], ['literal', [...DEFAULT_DISABLED_FEATURE_LEVELS]]],
-];
+/**
+ * Hides the levels the user has switched off — `dog=yes` is off until they
+ * opt in (§6). Features without a level (flat layers) are never hidden here.
+ */
+function levelEnabled(disabled: readonly FeatureLevel[]): FilterSpecification {
+  return ['!', ['in', ['coalesce', ['get', 'level'], ''], ['literal', [...disabled]]]];
+}
+
+/** `icon-image` for a layer: a match on level, falling back to its default. */
+function iconFor(layer: LayerKey): DataDrivenPropertyValueSpecification<string> {
+  const levels = Object.keys(ICONS[layer] ?? {}).filter((level) => level !== 'default');
+  const fallback = iconId(layer, 'default');
+  if (levels.length === 0) return fallback;
+  return [
+    'match',
+    ['coalesce', ['get', 'level'], ''],
+    ...levels.flatMap((level) => [level, iconId(layer, level as FeatureLevel)]),
+    fallback,
+  ] as unknown as ExpressionSpecification;
+}
+
+/** Icons for points of interest. Rarer, more useful levels win collisions. */
+function symbolLayer(
+  id: string,
+  base: { source: string; 'source-layer': string; minzoom: number },
+  layer: LayerKey,
+  filter: FilterSpecification,
+  sortByLevel?: Partial<Record<FeatureLevel, number>>,
+): LayerSpecification {
+  return {
+    ...base,
+    id,
+    type: 'symbol',
+    filter,
+    layout: {
+      'icon-image': iconFor(layer),
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 13, 0.7, 17, 1.05],
+      'icon-allow-overlap': false,
+      'icon-padding': 1,
+      ...(sortByLevel === undefined
+        ? {}
+        : {
+            'symbol-sort-key': [
+              'match',
+              ['coalesce', ['get', 'level'], ''],
+              ...Object.entries(sortByLevel).flatMap(([level, rank]) => [level, rank]),
+              99,
+            ] as unknown as ExpressionSpecification,
+          }),
+    },
+  };
+}
 
 const all = (...filters: FilterSpecification[]): FilterSpecification =>
   ['all', ...filters] as unknown as FilterSpecification;
@@ -53,24 +95,9 @@ const OFF_LEASH_COLOURS: Partial<Record<FeatureLevel, string>> = {
   allowed_leash_unknown: safety.neutral,
 };
 
-const WASTE_COLOURS: Partial<Record<FeatureLevel, string>> = {
-  general: palette.inkSoft,
-  dog_bin: palette.terracottaDeep,
-  bag_dispenser: palette.sageDeep,
-};
-
-const pointRadius = (base: number): DataDrivenPropertyValueSpecification<number> => [
-  'interpolate',
-  ['linear'],
-  ['zoom'],
-  13,
-  base,
-  18,
-  base * 2.2,
-];
-
 /** Layers per toggle, bottom to top within each. */
-function specsFor(key: LayerKey): LayerSpecification[] {
+function specsFor(key: LayerKey, disabled: readonly FeatureLevel[]): LayerSpecification[] {
+  const enabled = levelEnabled(disabled);
   const id = (part: string): string => `pawpath-${key}-${part}`;
   const base = { source: PAWPATH_SOURCE_ID, 'source-layer': key, minzoom: LAYER_MIN_ZOOM[key] };
 
@@ -101,14 +128,14 @@ function specsFor(key: LayerKey): LayerSpecification[] {
           ...base,
           id: id('fill'),
           type: 'fill',
-          filter: all(isPolygon, levelEnabled),
+          filter: all(isPolygon, enabled),
           paint: { 'fill-color': byLevel(OFF_LEASH_COLOURS, safety.neutral), 'fill-opacity': 0.28 },
         },
         {
           ...base,
           id: id('outline'),
           type: 'line',
-          filter: all(isPolygon, levelEnabled),
+          filter: all(isPolygon, enabled),
           paint: {
             'line-color': byLevel(OFF_LEASH_COLOURS, safety.neutral),
             'line-width': 2,
@@ -119,21 +146,18 @@ function specsFor(key: LayerKey): LayerSpecification[] {
           ...base,
           id: id('paths'),
           type: 'line',
-          filter: all(isLine, levelEnabled),
+          filter: all(isLine, enabled),
           paint: { 'line-color': byLevel(OFF_LEASH_COLOURS, safety.neutral), 'line-width': 3 },
         },
-        {
-          ...base,
-          id: id('points'),
-          type: 'circle',
-          filter: all(isPoint, levelEnabled),
-          paint: {
-            'circle-color': byLevel(OFF_LEASH_COLOURS, safety.neutral),
-            'circle-radius': pointRadius(5),
-            'circle-stroke-color': palette.cream,
-            'circle-stroke-width': 2,
-          },
-        },
+        // One badge per area or point, so the rule is readable without
+        // relying on colour alone (colour-blind users, §10).
+        symbolLayer(id('icons'), base, 'offLeash', all(['!=', ['geometry-type'], 'LineString'], enabled), {
+          prohibited: 0,
+          leashed: 1,
+          off_leash: 2,
+          off_leash_fenced: 3,
+          allowed_leash_unknown: 4,
+        }),
       ];
     case 'surface':
       return [
@@ -165,31 +189,14 @@ function specsFor(key: LayerKey): LayerSpecification[] {
         },
       ];
     case 'benches':
-      return [circleLayer(id('points'), base, palette.goldenDeep, 4)];
+      return [symbolLayer(id('icons'), base, 'benches', ['all'] as unknown as FilterSpecification)];
     case 'waste':
-      return [circleLayer(id('points'), base, byLevel(WASTE_COLOURS, palette.inkSoft), 4)];
+      return [
+        symbolLayer(id('icons'), base, 'waste', enabled, { bag_dispenser: 0, dog_bin: 1, general: 2 }),
+      ];
     case 'drinkingWater':
-      return [circleLayer(id('points'), base, '#3E8FA6', 5)];
+      return [symbolLayer(id('icons'), base, 'drinkingWater', ['all'] as unknown as FilterSpecification)];
   }
-}
-
-function circleLayer(
-  id: string,
-  base: { source: string; 'source-layer': string; minzoom: number },
-  colour: Colour,
-  radius: number,
-): LayerSpecification {
-  return {
-    ...base,
-    id,
-    type: 'circle',
-    paint: {
-      'circle-color': colour,
-      'circle-radius': pointRadius(radius),
-      'circle-stroke-color': palette.cream,
-      'circle-stroke-width': 2,
-    },
-  };
 }
 
 /** Draw order: areas under lines under points. */
@@ -203,14 +210,16 @@ const DRAW_ORDER: readonly LayerKey[] = [
   'drinkingWater',
 ];
 
-export function pawpathLayerSpecs(): { specs: LayerSpecification[]; idsByLayer: Record<LayerKey, string[]> } {
+export function pawpathLayerSpecs(
+  disabledLevels: readonly FeatureLevel[],
+): { specs: LayerSpecification[]; idsByLayer: Record<LayerKey, string[]> } {
   const idsByLayer = Object.fromEntries(LAYER_KEYS.map((key) => [key, [] as string[]])) as Record<
     LayerKey,
     string[]
   >;
   const specs: LayerSpecification[] = [];
   for (const key of DRAW_ORDER) {
-    for (const spec of specsFor(key)) {
+    for (const spec of specsFor(key, disabledLevels)) {
       specs.push(spec);
       idsByLayer[key].push(spec.id);
     }
