@@ -15,14 +15,12 @@ const ENV: Readonly<Record<string, string | undefined>> =
 
 export const APP_NAME = 'PawPath';
 
-/** Sentinel meaning "no contact URL has been set yet". */
-export const APP_CONTACT_URL_UNSET = 'UNSET';
-
 /**
- * Public contact for the project — the repository once it is public
- * (CLAUDE.md §11, Phase 7 checklist). Shown in the about/attribution text.
+ * Public contact for the project: the repository (CLAUDE.md §11, Phase 7
+ * checklist). Shown in the disclaimer as "source & feedback". It resolves
+ * once the repository is public.
  */
-export const APP_CONTACT_URL: string = APP_CONTACT_URL_UNSET;
+export const APP_CONTACT_URL = 'https://github.com/unrlnt/dogWalkMap';
 
 /* ------------------------------------------------------------------ *
  * Our vector tiles  (CLAUDE.md §3, §8)

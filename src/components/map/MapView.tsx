@@ -107,6 +107,13 @@ export interface MapViewProps {
   readonly route: RouteOverlay | undefined;
   /** Fit the camera to these bounds whenever `fitKey` changes. */
   readonly fit: { readonly key: number; readonly bounds: [LngLat, LngLat] } | undefined;
+  /**
+   * Height of the attribution line in px, so floating controls can sit above
+   * it: attribution must stay visible (licence requirement, CLAUDE.md §10).
+   */
+  readonly onAttributionHeight: (px: number) => void;
+  /** The map could not start (no WebGL, or the GPU context was lost). */
+  readonly onMapError: (message: string) => void;
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -199,6 +206,8 @@ export default function MapView({
   onDropPin,
   route,
   fit,
+  onAttributionHeight,
+  onMapError,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -410,7 +419,9 @@ export default function MapView({
     if (container === null || mapRef.current !== null) return;
     registerPmtiles();
 
-    const map = new maplibregl.Map({
+    let map: MapLibreMap;
+    try {
+      map = new maplibregl.Map({
       container,
       // Placeholder until the real style loads, so the first paint is cream.
       style: {
@@ -423,8 +434,17 @@ export default function MapView({
       minZoom: MAP_MIN_ZOOM,
       maxZoom: MAP_MAX_ZOOM,
       attributionControl: false,
-    });
+      });
+    } catch (cause) {
+      // MapLibre throws synchronously when WebGL is unavailable.
+      console.error('[map] could not start', cause);
+      onMapError(
+        'This browser could not start the map (WebGL is unavailable or switched off). Try another browser, or turn on hardware acceleration.',
+      );
+      return;
+    }
     mapRef.current = map;
+    map.on('webglcontextlost', () => onMapError('The map lost its graphics context. Reload the page to continue.'));
     if (import.meta.env.DEV) {
       // Dev-only handle for diagnostics and the headless verification script.
       (window as unknown as { __pawpathMap?: MapLibreMap }).__pawpathMap = map;
@@ -448,6 +468,14 @@ export default function MapView({
       }),
       'bottom-right',
     );
+
+    // Keep floating controls above the attribution line, whatever its height.
+    const attribution = container.querySelector('.maplibregl-ctrl-bottom-right');
+    const observer =
+      attribution === null || typeof ResizeObserver === 'undefined'
+        ? undefined
+        : new ResizeObserver(() => onAttributionHeight(attribution.getBoundingClientRect().height));
+    if (attribution !== null) observer?.observe(attribution);
 
     map.on('style.load', () => {
       // The placeholder style also fires this; only the real one counts.
@@ -561,6 +589,7 @@ export default function MapView({
     map.on('movestart', clearLongPress);
 
     return () => {
+      observer?.disconnect();
       clearLongPress();
       for (const marker of markers.current) marker.remove();
       markers.current = [];

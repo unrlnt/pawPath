@@ -10,7 +10,7 @@
 #   TILE_REGIONS        either the name of a preset list tools/tiles/sources-<name>.txt
 #                       (planet, nl-de, flevoland), or a comma-separated list of
 #                       Geofabrik region ids, e.g. "europe/netherlands,europe/belgium".
-#                       See https://download.geofabrik.de for the ids. Default: planet
+#                       See https://download.geofabrik.de for the ids. Default: nl-de
 #   OUT_DIR             shared tiles volume (default: /srv/tiles)
 #   WORK_DIR            temporary space, ~50 GB for the planet (default: /work)
 #   REBUILD_AFTER_DAYS  default 7
@@ -19,7 +19,7 @@
 set -uo pipefail
 
 TILES_DIR=$(cd "$(dirname "$0")" && pwd)
-TILE_REGIONS=${TILE_REGIONS:-planet}
+TILE_REGIONS=${TILE_REGIONS:-nl-de}
 OUT_DIR=${OUT_DIR:-/srv/tiles}
 export WORK_DIR=${WORK_DIR:-/work}
 REBUILD_AFTER_DAYS=${REBUILD_AFTER_DAYS:-7}
@@ -48,6 +48,14 @@ needs_build() {
   [[ "$(cat "$OUT_DIR/.regions" 2>/dev/null)" != "$TILE_REGIONS" ]] && return 0
   return 1
 }
+
+# No warnings source exists yet (docs/water-warnings.md). An empty, valid file
+# saves every browser a 404 on each refresh; a real connector overwrites it.
+mkdir -p "$OUT_DIR"
+if [[ ! -f "$OUT_DIR/water-warnings.json" ]]; then
+  printf '{"updatedAt":null,"source":null,"warnings":[]}\n' > "$OUT_DIR/.water-warnings.json.tmp"
+  mv -f "$OUT_DIR/.water-warnings.json.tmp" "$OUT_DIR/water-warnings.json"
+fi
 
 log "watching $OUT_DIR (regions: $TILE_REGIONS → ${#SOURCES[@]} extract(s), rebuild after ${REBUILD_AFTER_DAYS}d)"
 while true; do

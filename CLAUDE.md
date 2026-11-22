@@ -98,10 +98,12 @@ where the tiles were built or hosted.
 
 Accepted deliberately; do not "fix" these without discussion:
 - Data is up to one build old (weekly). Irrelevant for benches and forests.
-- A planet build needs **~50 GB of temporary disk**: `build.sh` downloads,
-  filters and deletes one region at a time, so the peak is the largest region
-  (Europe) plus small filtered parts. Only the `.pmtiles` stays afterwards.
-  If even that is too much, build elsewhere and upload the result.
+- A planet build needs **~70 GB of temporary disk** (estimate, incl. the
+  routing layer): `build.sh` downloads, filters and deletes one region at a
+  time, so the peak is the largest region (Europe) plus the filtered parts.
+  Only the `.pmtiles` stays afterwards. **The default is NL+DE** (~10 GB while
+  building) since Phase 7; switch with `TILE_REGIONS`. If a planet build is
+  too much for the server, build elsewhere and upload the result.
 - Tags not in the profile are not in the tiles. Adding a layer means a rebuild.
 - **The routing layer (Phase 9) is most of the size.** Flevoland: filtered
   extract 11 MB of 39 MB, tiles 6.7 MB (4.2 MB without `walk`). Scaled by
@@ -303,7 +305,9 @@ location's time zone, not the browser's.
 
 A single unobtrusive ad slot is included from Phase 7. Build it as a component
 with a feature flag so it can be enabled, swapped or removed without touching
-layout code. Reserve the space in the layout so enabling it causes no shift.
+layout code. *Phase 7: the flag (`VITE_ADS_ENABLED`) is build-time, so no
+runtime shift is possible; with ads off the slot takes no space at all, and
+with ads on it reserves its height from the first paint.* **Off at launch.**
 
 Caveats to keep in mind, recorded so they are not rediscovered later:
 - **Open-Meteo's free API is non-commercial.** An enabled ad slot makes the app
@@ -538,7 +542,11 @@ Constraints that keep this compatible with §2:
 - [x] Phase 6 — Water warnings *(done 2026-11-22 for what exists: 21,973
       official EU bathing sites in the tiles, three-state rendering, optional
       warnings file. **No live warnings source** is usable yet — see below.)*
-- [ ] Phase 7 — Public launch
+- [~] Phase 7 — Public launch *(code done 2026-11-22: error/offline/first-build
+      states, attribution always visible, security headers, cacheable chunks,
+      metadata, NL+DE default, Coolify guide; production image tested here.
+      **Owner steps left:** merge to `main`, deploy on Coolify, GitHub privacy
+      settings, then flip the repository to public.)*
 - [ ] Phase 8 — Regional enrichment (post-launch)
 - [x] Phase 9 — Route planner *(done 2026-11-22, pulled forward before
       Phase 7: in-browser A* on the `walk` tile layer, dog- and heat-aware;
@@ -663,7 +671,60 @@ of 1.2 km. Browser, same area, simulated heat: "2.0 km · 1.1 km in shade",
 green-edged stretches through the wood and along a tree-lined street; kind
 to paws 230 m → 860 m compared with the run before side sampling. 129 tests.
 
+### Phase 7 — verification (2026-11-22)
+
+Production `web` image (built from the real Dockerfile plus the sandbox's
+proxy certificate in a throwaway copy), Flevoland tiles mounted:
+- Headers: CSP, Permissions-Policy, `/` 5 min, `.pmtiles` 206 with
+  `Content-Range`, immutable, no `Content-Encoding`; `/tiles/.regions` 404;
+  `/healthz` ok; SPA fallback 200.
+- Headless Chromium: first canvas 0.46 s; transfer 36 kB app + 47 kB React +
+  294 kB MapLibre + 11 kB tile reader (gzip) + fonts. **The CSP first blocked
+  four tiny fonts Vite inlines as `data:`** → `font-src 'self' data:`; then
+  zero violations. Attribution line fully visible (controls end at 790 px,
+  attribution starts at 800 px). Route planner works from the production
+  build; offline banner appears with the network cut.
+- Fresh server (empty volume): the builder starts with `nl-de`, writes the
+  empty `water-warnings.json`, and the page shows the basemap with "The map
+  data is still being prepared". The download itself fails here only because
+  this sandbox cannot reach Geofabrik.
+- Full-history scan: 11 commits; identities only `Claude <noreply@…>` and
+  `unrlnt` (GitHub noreply, and once `noreply@anthropic.com`); no other
+  e-mail addresses, no key-like strings, no `.env` besides `.env.example`,
+  no personal names or local paths. Not re-checkable from here: old,
+  unreferenced pre-rewrite commits GitHub may still serve by SHA.
+- The new `tiles` image could not be rebuilt here (Docker Hub answered 429
+  for the Java base image); the changed builder script was tested in the
+  previous `tiles` image instead. Nothing else in that image changed.
+
 ### Decisions log
+
+**Phase 7 — launch preparation (2026-11-22)**
+
+- **Attribution can never be covered**: MapView measures the attribution
+  control and the floating controls sit above it (it wraps to two lines on
+  phones; the toggles used to hide part of it).
+- **States, each with plain words**: render crash → error page with mascot
+  and reload (saved walks untouched); no WebGL / lost context → message;
+  offline → banner, the map keeps what it has; manifest 404 → "still being
+  prepared" (a fresh server's first build); planning without path data →
+  says so.
+- **Security headers** in Caddy: `script-src 'self'` (OSM text can never
+  run as code), connections and images to any https host so `VITE_*`
+  overrides need no header edit, MapLibre's blob worker allowed,
+  `frame-ancestors 'none'`, geolocation for this origin only.
+- **Bundles**: MapLibre, React and the tile reader in their own chunks, so a
+  release re-downloads only the ~36 kB app chunk; source maps off (the
+  source is public).
+- **`TILE_REGIONS` defaults to `nl-de`** (was `planet`): the primary users'
+  countries, a first build in under an hour, ~10 GB of temporary disk.
+- **Empty `water-warnings.json`** written by the builder when missing — same
+  meaning as no file, without a 404 per visitor every 30 minutes.
+- **`APP_CONTACT_URL`** = `https://github.com/unrlnt/dogWalkMap`, shown as
+  "Source & feedback" in the disclaimer; it resolves once the repo is public.
+- **Share links and favourites** (Phase 7 list) are covered by the route
+  planner's share link and "My walks"; no separate place favourites.
+- **Open-Meteo stays free-tier compliant**: ads are off, nothing commercial.
 
 **Phase 9b — shade along the route (2026-11-22, also closes the Phase 5
 stretch goal)**

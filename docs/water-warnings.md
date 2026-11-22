@@ -8,8 +8,9 @@ optional file, served next to the tiles:
 /tiles/water-warnings.json      (short cache; missing file = no warnings known)
 ```
 
-No file is the normal state today: no official source with clear reuse terms
-offers live warnings (see CLAUDE.md §12, Phase 6). The app handles that
+No warnings is the normal state today (the `tiles` container writes an empty
+`{"warnings": []}` file on start if none exists, so browsers get no 404): no
+official source with clear reuse terms offers live warnings (see CLAUDE.md §12, Phase 6). The app handles that
 gracefully — every site stays in the neutral "official bathing spot" state,
 which never claims the water is safe, and links to the official source for
 today's status.

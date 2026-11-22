@@ -9,6 +9,12 @@
 	header {
 		X-Content-Type-Options nosniff
 		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "geolocation=(self), camera=(), microphone=(), payment=()"
+		# Scripts only from this origin: OSM names and other map text can never
+		# run as code. Connections and images may go to any https host, so a
+		# basemap or search override (VITE_*) keeps working without editing
+		# this. MapLibre runs its worker from a blob: URL.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https:; worker-src 'self' blob:; child-src blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 		-Server
 	}
 

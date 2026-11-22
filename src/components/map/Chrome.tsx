@@ -8,7 +8,7 @@
 
 import { useState } from 'react';
 
-import { ADS_ENABLED, AD_SLOT_HEIGHT_PX, LAYER_MIN_ZOOM, STORAGE_KEYS } from '../../config';
+import { ADS_ENABLED, AD_SLOT_HEIGHT_PX, APP_CONTACT_URL, LAYER_MIN_ZOOM, STORAGE_KEYS } from '../../config';
 import { LAYER_ICONS } from '../../data/levelLabels';
 import { ALL_LAYERS, LAYERS, type LayerKey } from '../../data/layers';
 import { isTrue, readStored, writeStored } from '../../lib/storage';
@@ -50,6 +50,12 @@ export function Disclaimer() {
       >
         Got it — let's walk
       </button>
+      <p className="mt-2 text-center text-xs text-inkSoft">
+        Free, no login, nothing tracked.{' '}
+        <a href={APP_CONTACT_URL} target="_blank" rel="noopener noreferrer" className="underline">
+          Source &amp; feedback
+        </a>
+      </p>
     </div>
   );
 }
@@ -155,6 +161,9 @@ export function DataUnavailable({ message }: { message: string }) {
  * ------------------------------------------------------------------ */
 
 export function AdSlot() {
+  // The flag is build-time, so no layout shift can happen at runtime: when
+  // ads are off, the slot takes no space at all (CLAUDE.md §9).
+  if (!ADS_ENABLED) return null;
   return (
     <div
       style={{ height: AD_SLOT_HEIGHT_PX }}

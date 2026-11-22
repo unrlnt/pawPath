@@ -35,3 +35,10 @@ describe('parseWaterWarnings', () => {
     expect(parseWaterWarnings({ warnings: 'nope' }).byId.size).toBe(0);
   });
 });
+
+describe('the empty file the tiles container writes on start', () => {
+  it('means no warnings, without errors', () => {
+    const parsed = parseWaterWarnings({ updatedAt: null, source: null, warnings: [] });
+    expect(parsed.byId.size).toBe(0);
+  });
+});

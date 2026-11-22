@@ -26,8 +26,15 @@ export async function loadTilesManifest(signal?: AbortSignal): Promise<ManifestO
       credentials: 'omit',
       ...(signal === undefined ? {} : { signal }),
     });
+    if (response.status === 404) {
+      // A fresh server: the tiles container is still on its first build.
+      return {
+        ok: false,
+        message: 'The map data is still being prepared. The basemap works already; dog-walk details appear once the first build is done.',
+      };
+    }
     if (!response.ok) {
-      return { ok: false, message: `Map data unavailable (HTTP ${response.status}).` };
+      return { ok: false, message: `Map data is unavailable right now (HTTP ${response.status}). Try again in a little while.` };
     }
     const raw: unknown = await response.json();
     const record = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {};

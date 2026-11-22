@@ -44,6 +44,7 @@ import FilterSheet from './FilterSheet';
 import MapView, { type RouteOverlay, type Viewport } from './MapView';
 import SearchBox from './SearchBox';
 import { useGeolocation } from './useGeolocation';
+import { useOnline } from './useOnline';
 
 const isLevelList = (value: unknown): value is FeatureLevel[] =>
   Array.isArray(value) && value.every((entry) => typeof entry === 'string' && isFeatureLevel(entry));
@@ -72,6 +73,9 @@ export default function MapPage() {
     () => readStored(STORAGE_KEYS.disabledLevels, isLevelList) ?? [...DEFAULT_DISABLED_FEATURE_LEVELS],
   );
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [attributionPx, setAttributionPx] = useState(24);
+  const [mapError, setMapError] = useState<string | undefined>(undefined);
+  const online = useOnline();
   const [warnings, setWarnings] = useState<WaterWarnings>(NO_WARNINGS);
 
   // Warnings change during the day in season; refresh every 30 minutes.
@@ -226,6 +230,8 @@ export default function MapPage() {
           }
           route={routeOverlay}
           fit={fit}
+          onAttributionHeight={setAttributionPx}
+          onMapError={setMapError}
           onViewportChange={setViewport}
           onDropPin={(position) => {
             setPin(position);
@@ -250,12 +256,19 @@ export default function MapPage() {
               }}
             />
           ) : null}
+          {mapError !== undefined ? <DataUnavailable message={mapError} /> : null}
+          {!online ? (
+            <Banner tone="warn">You are offline. The map shows what is already loaded; weather and new areas return when you are back online.</Banner>
+          ) : null}
           {tilesError !== undefined ? <DataUnavailable message={tilesError} /> : null}
           <ZoomHint waiting={waiting} />
           {geolocation.message !== '' ? <Banner tone="info">{geolocation.message}</Banner> : null}
         </div>
 
-        <div className="pointer-events-none absolute inset-x-0 bottom-8 z-20 flex flex-col gap-2">
+        <div
+          className="pointer-events-none absolute inset-x-0 z-20 flex flex-col gap-2"
+          style={{ bottom: attributionPx + 6 }}
+        >
           <div className="pointer-events-none mr-2 flex flex-col gap-2 self-end">
             <ControlButton
               label={searchOpen ? 'Close search' : 'Search for a place'}

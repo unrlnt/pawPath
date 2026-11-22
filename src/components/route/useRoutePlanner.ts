@@ -96,8 +96,12 @@ export function useRoutePlanner(tilesUrl: string | undefined, hour: HourPoint | 
   const run = useRef(0);
   useEffect(() => {
     const stops = state.roundTrip && state.waypoints.length >= 2 ? [...state.waypoints, state.waypoints[0] as LngLat] : state.waypoints;
-    if (!active || stops.length < 2 || source === undefined) {
+    if (!active || stops.length < 2) {
       setStatus({ kind: 'idle' });
+      return;
+    }
+    if (source === undefined) {
+      setStatus({ kind: 'failed', message: 'Path data is not available yet, so walks cannot be planned right now.' });
       return;
     }
     const id = (run.current += 1);

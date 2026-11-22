@@ -1,8 +1,10 @@
 # PawPath
 
-A no-login map of the things that matter when you walk a dog: shade, off-leash
-areas, water warnings, benches, bins, bag dispensers, drinking water, path
-surface, and live conditions.
+A free, no-login map for planning today's dog walk: paths that are kind to
+paws right now, shade, off-leash areas, official bathing spots, benches, bins,
+bag dispensers, drinking water, live conditions — and a route planner that
+prefers cool surfaces and shade in the heat. Routes save on your device and
+share as a link; there are no accounts and nothing is tracked.
 
 `CLAUDE.md` is the spec and the source of truth. Read it before changing
 anything.

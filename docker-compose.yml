@@ -2,13 +2,12 @@
 #
 #   web    serves the app on :80 — assign your domain to this service in Coolify
 #   tiles  builds the map data on start and rebuilds weekly, into the shared
-#          `tiles` volume. First planet build takes hours; NL+DE takes minutes
-#          (set TILE_REGIONS=nl-de for a fast first deploy; any list of
-#          Geofabrik ids works too, e.g. europe/netherlands,europe/belgium).
+#          `tiles` volume. Default NL+DE (well under an hour); set
+#          TILE_REGIONS=planet when the server has room (hours), or any list
+#          of Geofabrik ids, e.g. europe/netherlands,europe/belgium.
 #
-# Disk: `tiles-work` needs ~50 GB free while a planet build runs (it is emptied
-# afterwards); `tiles` holds the finished .pmtiles (a few GB). See
-# docs/deployment.md.
+# Disk: see docs/deployment.md — NL+DE needs ~10 GB while building and keeps
+# ~1–2 GB; the planet needs ~70 GB while building and keeps ~10–15 GB.
 
 services:
   web:
@@ -35,7 +34,7 @@ services:
       context: .
       target: tiles
     environment:
-      TILE_REGIONS: ${TILE_REGIONS:-planet}
+      TILE_REGIONS: ${TILE_REGIONS:-nl-de}
       JAVA_XMX: ${JAVA_XMX:-4g}
       REBUILD_AFTER_DAYS: ${REBUILD_AFTER_DAYS:-7}
     volumes:
