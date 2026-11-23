@@ -188,6 +188,7 @@ exact value in the popup.
 | Benches | `amenity=bench` | Flat |
 | Waste bins | `amenity=waste_basket` (+ `waste=dog_excrement`), `vending=excrement_bags` (any element, no `amenity` required), `amenity~dog_waste.*\|dog_excrement` | Three levels with distinct symbols: general bin, dog bin, bag dispenser |
 | Drinking water | `amenity=drinking_water`, `amenity=water_point` | Flat; note that NL coverage is sparse |
+| Public toilets | `amenity=toilets`; `access=private`/`no` kept in the tiles but never drawn or listed | Flat; off by default. For the walker, not the dog |
 | Seasonal | Derived | Severity ramp: low / moderate / high |
 | You | Geolocation | — |
 
@@ -717,6 +718,25 @@ proxy certificate in a throwaway copy), Flevoland tiles mounted:
   previous `tiles` image instead. Nothing else in that image changed.
 
 ### Decisions log
+
+**Public toilets (2026-11-23, owner request)**
+
+- **A new layer `toilets`** (`amenity=toilets`, z13+, off by default like
+  benches): chip "Public toilets", grey badge with a toilet glyph, popup with
+  fee ("Free" / "Costs a fee"), "For customers only", wheelchair, baby
+  changing table and opening hours when mapped.
+- **Private toilets are not shown**: `access=private` / `no`
+  (`TOILET_HIDDEN_ACCESS`) stay in the tiles (the condition language has no
+  "not"), but the style filters them out and Find nearby skips them.
+  `access=customers` is shown, and says so.
+- **Find nearby has "Toilet"**; amenity POIs now carry their `name`.
+  Not added to "Add a stop" or to reporting — not asked.
+- **Needs a tile rebuild**: the schema and osmium filter changed, so the
+  build key changes and the server rebuilds on deploy.
+- Flevoland build (now named `pawpath-20261123-1627.pmtiles`, 6.4 MB):
+  2 public toilets within 2 km of central Almere — sparse, as mapped.
+  Browser: chip on → icon; Find nearby "Toilet — 1.4 km south-east"; popup
+  "Public toilet". `planetiler verify` 38/38. No page errors.
 
 **Tile file names carry the time (2026-11-23)**
 

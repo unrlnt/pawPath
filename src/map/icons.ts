@@ -38,6 +38,7 @@ export const GLYPHS = {
   dogBin: { stroke: BIN, fill: [toe(12, 13.6, 1.9), toe(10, 10.8, 0.9), toe(14, 10.8, 0.9)] },
   bag: { stroke: ['M7.5 9h9l1 10h-11z', 'M10 9V7a2 2 0 0 1 4 0v2'] },
   water: { stroke: ['M12 4.5c3 4 5 6.8 5 9.2a5 5 0 0 1-10 0c0-2.4 2-5.2 5-9.2z'] },
+  toilet: { stroke: ['M8 4.5h8v5H8z', 'M6 11h12c0 2.9-2.2 4.9-5 5.2v3.3h-2v-3.3C8.2 15.9 6 13.9 6 11z'] },
   paw: { fill: PAW },
   fence: {
     stroke: ['M6 19V8.5l1.5-2 1.5 2V19', 'M10.5 19V8.5l1.5-2 1.5 2V19', 'M15 19V8.5l1.5-2 1.5 2V19', 'M4.5 11.5h15', 'M4.5 15.5h15'],
@@ -75,6 +76,7 @@ export const iconId = (layer: LayerKey, level: FeatureLevel | 'default'): string
 export const ICONS: Readonly<Partial<Record<LayerKey, Partial<Record<FeatureLevel | 'default', IconSpec>>>>> = {
   benches: { default: { glyph: 'bench', colour: palette.goldenDeep } },
   drinkingWater: { default: { glyph: 'water', colour: '#3E8FA6' } },
+  toilets: { default: { glyph: 'toilet', colour: palette.inkSoft } },
   water: {
     default: { glyph: 'waves', colour: safety.monitoredBadge },
     monitored: { glyph: 'waves', colour: safety.monitoredBadge },

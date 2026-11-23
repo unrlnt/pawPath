@@ -250,6 +250,12 @@ export const LAYER_EXAMPLES: readonly LayerExample[] = [
     expect: [{ layer: 'drinkingWater', geometry: 'point' }],
   },
   {
+    name: 'public toilets',
+    geometry: 'point',
+    tags: { amenity: 'toilets', fee: 'no' },
+    expect: [{ layer: 'toilets', geometry: 'point' }],
+  },
+  {
     name: 'an unrelated shop is dropped',
     geometry: 'point',
     tags: { shop: 'bakery' },

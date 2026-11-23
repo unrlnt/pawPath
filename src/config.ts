@@ -59,7 +59,11 @@ export const LAYER_MIN_ZOOM = {
   benches: 13,
   waste: 13,
   drinkingWater: 13,
+  toilets: 13,
 } as const;
+
+/** Toilets mapped with these `access` values are neither drawn nor listed. */
+export const TOILET_HIDDEN_ACCESS = ['private', 'no'] as const;
 
 /**
  * Small JSON written by the tile build: `{ "url": "pawpath-YYYYMMDD-HHMM.pmtiles", ... }`.

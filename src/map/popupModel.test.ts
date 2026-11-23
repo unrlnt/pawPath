@@ -46,6 +46,7 @@ describe('popupModel', () => {
   it('ignores an unknown level instead of trusting it', () => {
     expect(popupModel('offLeash', { level: 'off_leash_please' }, 12).title).toBe('Dog rules');
     expect(popupModel('benches', {}, 12).title).toBe('Bench');
+    expect(popupModel('toilets', {}, 12).title).toBe('Public toilet');
   });
 });
 
@@ -101,5 +102,12 @@ describe('bathing spots (Phase 6)', () => {
     expect(model.details[0]).toBe('Blue-green algae present.');
     expect(model.icon?.glyph).toBe('alert');
     expect(model.sourceUrl).toBe('https://example.org/n');
+  });
+
+  it('describes a toilet in plain words', () => {
+    expect(
+      popupModel('toilets', { access: 'customers', fee: 'no', wheelchair: 'yes', opening_hours: '08:00-20:00' }, 12).details,
+    ).toEqual(['For customers only', 'Free', 'Wheelchair accessible', 'Open: 08:00-20:00']);
+    expect(popupModel('toilets', { fee: 'yes' }, 12).details).toEqual(['Costs a fee']);
   });
 });
