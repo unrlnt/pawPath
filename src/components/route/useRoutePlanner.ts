@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ROUTE_MAX_SAVED, ROUTE_MAX_WAYPOINTS, ROUTE_STOP_MAX_OFF_ROUTE_M, STORAGE_KEYS } from '../../config';
-import { WalkGraphSource } from '../../data/sources/walkGraphSource';
+import { walkGraphSourceFor } from '../../data/sources/walkGraphSource';
 import { pawBandsByExposure } from '../../lib/conditions/pawBySurface';
 import type { HourPoint } from '../../lib/conditions/types';
 import { bestInsertIndex } from '../../lib/routing/edit';
@@ -50,7 +50,7 @@ export function useRoutePlanner(tilesUrl: string | undefined, hour: HourPoint | 
     () => readStored(STORAGE_KEYS.savedRoutes, isSavedRouteList) ?? [],
   );
 
-  const source = useMemo(() => (tilesUrl === undefined ? undefined : new WalkGraphSource(tilesUrl)), [tilesUrl]);
+  const source = useMemo(() => (tilesUrl === undefined ? undefined : walkGraphSourceFor(tilesUrl)), [tilesUrl]);
 
   /** Every edit goes through here, so undo always works. */
   const update = useCallback((next: (current: PlannerState) => PlannerState) => {
@@ -160,6 +160,14 @@ export function useRoutePlanner(tilesUrl: string | undefined, hour: HourPoint | 
     },
     [update],
   );
+  /** Start planning a fresh walk through these stops ("Walk there"). */
+  const startWith = useCallback(
+    (waypoints: readonly LngLat[]) => {
+      update(() => ({ waypoints, roundTrip: false }));
+      setActive(true);
+    },
+    [update],
+  );
   const remove = useCallback(
     (id: string) => persist(saved.filter((r) => r.id !== id)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -208,6 +216,7 @@ export function useRoutePlanner(tilesUrl: string | undefined, hour: HourPoint | 
     undo,
     save,
     open,
+    startWith,
     remove,
     shareUrl,
   };

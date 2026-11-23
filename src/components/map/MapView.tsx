@@ -124,6 +124,8 @@ export interface MapViewProps {
    */
   readonly crosshair: { readonly x: number; readonly y: number } | undefined;
   readonly onCrosshairMove: (p: { lat: number; lng: number }) => void;
+  /** A place to point out ("Find nearby" result). */
+  readonly highlight: LngLat | undefined;
   /** Tapped "Not there anymore?" in a bench, bin or tap popup. */
   readonly onReportGone: (gone: { kind: ReportKind; lat: number; lng: number; osmUrl: string | undefined }) => void;
 }
@@ -234,6 +236,7 @@ export default function MapView({
   onReportGone,
   crosshair,
   onCrosshairMove,
+  highlight,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -680,6 +683,24 @@ export default function MapView({
     if (map !== null) syncRoute(map);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route?.waypoints, route?.segments, route === undefined]);
+
+  // "Find nearby" result: a pulsing ring on the place.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map === null || highlight === undefined) return;
+    const el = document.createElement('div');
+    el.setAttribute('aria-hidden', 'true');
+    el.className = 'pointer-events-none relative h-12 w-12';
+    const ping = document.createElement('span');
+    ping.className = 'absolute inset-0 animate-ping rounded-full bg-terracotta opacity-40';
+    const ring = document.createElement('span');
+    ring.className = 'absolute inset-2 rounded-full border-4 border-terracotta bg-cream/40';
+    el.append(ping, ring);
+    const marker = new maplibregl.Marker({ element: el }).setLngLat([highlight[0], highlight[1]]).addTo(map);
+    return () => {
+      marker.remove();
+    };
+  }, [highlight?.[0], highlight?.[1]]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Report crosshair: where on the map the fixed screen point is.
   useEffect(() => {

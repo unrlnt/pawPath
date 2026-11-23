@@ -568,7 +568,7 @@ Constraints that keep this compatible with §2:
       drag stops and the line, undo, round trip, save, share link, GPX,
       "walk it"; shade along the route preferred in the heat and shown.
       Verified in the browser at Almere. "Add a stop" (water, bags, bin,
-      bench) done 2026-11-23.)*
+      bench) and "Find nearby" done 2026-11-23.)*
 - [ ] Phase 10 — Community mirrors *(idea)*
 - [~] Phase 11 — Mobile app *(step 1, PWA, done 2026-11-23: installable,
       offline shell and offline map for areas already viewed; verified in
@@ -717,6 +717,30 @@ proxy certificate in a throwaway copy), Flevoland tiles mounted:
   previous `tiles` image instead. Nothing else in that image changed.
 
 ### Decisions log
+
+**Find nearby (2026-11-23)**
+
+- **A 📍 button opens "Find nearby"**: Bin · Dog-waste bin · Bag dispenser ·
+  Bench · Drinking water · Off-leash area. It lists the three closest
+  (`NEARBY_RESULTS`) with distance and compass direction, "as the crow
+  flies" — never a walking distance it has not computed. Measured from the
+  walker's position when known, else the map centre (the sheet says which).
+- **Same tiles as the planner**: `walkGraphSource.poisNear()` reads the z14
+  tiles around the point through the planner's shared reader
+  (`walkGraphSourceFor`), first ±1 tile, then ±3 (`NEARBY_TILE_RINGS`,
+  roughly 5 and 17 km wide). No new data, no server. Pure ranking in
+  `src/lib/nearby.ts` (tested).
+- **Off-leash means only `off_leash` and `off_leash_fenced`** — never
+  `dog=yes` (§6). Fenced ones read "Dog park", with the name when mapped.
+  "Bin" accepts dog bins too; "Bag dispenser" only real dispensers.
+- **Show / walk there**: tapping a result pulses a marker on it and centres
+  the map; "Walk there" opens the route planner from the walker to it.
+  Nothing found: "No … is mapped within a few kilometres. Know one? Report
+  it with ⚑."
+- Browser, Almere centre: bin 250 m east, bench 80 m east, tap 1.6 km
+  south-east, dog-waste bin 3.6 km south-west, off-leash "Dog park ·
+  Stadswerfpark" 660 m south-east, bags none; 0.4–1.5 s; "Walk there" →
+  460 m, about 7 min. No page errors.
 
 **Shade in the map's path colours (2026-11-23)**
 

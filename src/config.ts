@@ -372,6 +372,13 @@ export const ROUTE_MAX_WAYPOINTS = 30;
 export const ROUTE_STOP_MAX_OFF_ROUTE_M = 400;
 /** An amenity this close to an existing stop counts as already on the route. */
 export const ROUTE_STOP_SAME_PLACE_M = 20;
+/**
+ * "Find nearby": z14 tiles searched around the starting point, widening ring
+ * by ring until something is found (1 = 3×3 tiles ≈ 4 km across in NL).
+ */
+export const NEARBY_TILE_RINGS = [1, 3] as const;
+/** How many results "Find nearby" lists. */
+export const NEARBY_RESULTS = 3;
 /** Saved routes kept in localStorage. */
 export const ROUTE_MAX_SAVED = 50;
 /** Cost per metre by highway class: 1 = preferred. */

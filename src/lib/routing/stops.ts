@@ -9,11 +9,16 @@ import { haversineM } from './graph';
 import type { LngLat } from './route';
 
 /** Amenities the tiles carry, as the planner sees them. */
-export type PoiKind = 'bench' | 'bin' | 'dogBin' | 'bagDispenser' | 'water';
+export type PoiKind = 'bench' | 'bin' | 'dogBin' | 'bagDispenser' | 'water' | 'offLeash';
 
 export interface Poi {
   readonly kind: PoiKind;
   readonly at: LngLat;
+  /** Tile feature id — the same area clipped into several tiles is one place. */
+  readonly id?: number | string;
+  readonly name?: string;
+  /** For off-leash places: fenced dog park or open off-leash area. */
+  readonly fenced?: boolean;
 }
 
 /** What the walker asks for, and which amenities satisfy it. */
