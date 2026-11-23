@@ -235,6 +235,8 @@ layers:
       - source: eea_bathing
         geometry: point
         min_zoom: 11
+        include_when:
+          bwid: __any__
         attributes:
           - key: level
             value:
@@ -634,6 +636,13 @@ examples:
         geometry: point
         tags:
           level: monitored
+  - name: the placeholder written when the EEA is unreachable is never drawn
+    input:
+      source: eea_bathing
+      geometry: point
+      tags:
+        placeholder: "true"
+    output: []
   - name: bench node
     input:
       source: osm

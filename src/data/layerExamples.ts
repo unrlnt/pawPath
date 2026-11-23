@@ -192,6 +192,13 @@ export const LAYER_EXAMPLES: readonly LayerExample[] = [
     tags: { bwid: 'NLBW07_VRL01', name: 'DE VROLIJK', category: 'Lake', quality: 'Excellent', quality_year: '2022' },
     expect: [{ layer: 'water', geometry: 'point', level: 'monitored' }],
   },
+  {
+    name: 'the placeholder written when the EEA is unreachable is never drawn',
+    source: 'eea_bathing',
+    geometry: 'point',
+    tags: { placeholder: 'true' },
+    expect: [],
+  },
 
   /* -- Amenities ----------------------------------------------------------- */
   {

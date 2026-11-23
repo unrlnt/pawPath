@@ -11,9 +11,12 @@
 #    `qualityStatus` (2022 at the time of writing) and stored per feature, so
 #    the app always shows WHICH season a class belongs to.
 #
-# On any failure the previous OUT file is kept; if there is none, an empty
-# FeatureCollection is written so the tile build still succeeds (no bathing
-# spots is "nothing drawn", which §6 allows; a broken build is not).
+# On any failure the previous OUT file is kept; if there is none (or it holds
+# no real site), a placeholder is written so the tile build still succeeds (no
+# bathing spots is "nothing drawn", which §6 allows; a broken build is not).
+# The placeholder is ONE point without `bwid`, not an empty collection:
+# Planetiler 0.10.2 crashes on a GeoJSON file with zero features (first real
+# deploy, 2026-11-23), and the schema drops features without `bwid`.
 #
 # Needs: curl, jq.
 set -euo pipefail
@@ -27,11 +30,14 @@ trap 'rm -rf "$TMP"' EXIT
 
 log() { printf '[bathing %s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
 
+PLACEHOLDER='{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[0,0]},"properties":{"placeholder":"true"}}]}'
+
 keep_previous() {
   log "WARNING: $1 — keeping the previous bathing-water file"
-  if [[ ! -s "$OUT" ]]; then
-    echo '{"type":"FeatureCollection","features":[]}' > "$OUT"
-    log "no previous file: wrote an empty collection"
+  # No previous file, or an earlier empty one: write the placeholder.
+  if [[ ! -s "$OUT" ]] || ! jq -e '[.features[] | select(.properties.bwid != null)] | length > 0' "$OUT" >/dev/null 2>&1; then
+    echo "$PLACEHOLDER" > "$OUT"
+    log "no usable previous file: wrote a placeholder (no bathing sites in this build)"
   fi
   exit 0
 }
