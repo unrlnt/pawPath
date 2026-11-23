@@ -13,7 +13,8 @@ import { PbfReader as Pbf } from 'pbf';
 import { PMTiles, type Source } from 'pmtiles';
 
 import { ROUTE_MAX_TILES, ROUTE_SHADE_SIDE_REACH_M, ROUTE_TILE_MARGIN_M, ROUTE_TREE_ROW_REACH_M } from '../../config';
-import { buildGraph, type GridLine, type Tags, type WalkGraph } from '../../lib/routing/graph';
+import { buildGraph, gridToLngLat, type GridLine, type Tags, type WalkGraph } from '../../lib/routing/graph';
+import type { Poi, PoiKind } from '../../lib/routing/stops';
 import { makeShadeLookup, type ShadeArea, type ShadeLevel, type ShadeLine } from '../../lib/routing/shade';
 import type { LngLat } from '../../lib/routing/route';
 import { WALK_GRAPH_ZOOM, WALK_LAYER } from '../walkGraph';
@@ -24,10 +25,21 @@ export interface DecodedTile {
   readonly lines: GridLine[];
   readonly shadeAreas: ShadeArea[];
   readonly shadeLines: ShadeLine[];
+  /** Benches, bins, dispensers and taps — for "add a stop". */
+  readonly pois: Poi[];
   readonly extent: number;
 }
 
-const EMPTY_TILE: DecodedTile = { lines: [], shadeAreas: [], shadeLines: [], extent: 4096 };
+/** Tile layer (and level) → the planner's amenity kind. */
+function poiKind(layer: string, level: unknown): PoiKind | undefined {
+  if (layer === 'benches') return 'bench';
+  if (layer === 'drinkingWater') return 'water';
+  if (layer === 'waste') return level === 'dog_bin' ? 'dogBin' : level === 'bag_dispenser' ? 'bagDispenser' : 'bin';
+  return undefined;
+}
+const POI_LAYERS = ['benches', 'waste', 'drinkingWater'] as const;
+
+const EMPTY_TILE: DecodedTile = { lines: [], shadeAreas: [], shadeLines: [], pois: [], extent: 4096 };
 
 const isShadeLevel = (value: unknown): value is ShadeLevel => value === 'dense' || value === 'medium' || value === 'light';
 
@@ -73,7 +85,44 @@ export function decodeRoutingTile(bytes: Uint8Array, x: number, y: number): Deco
       else if (feature.type === 2) for (const points of geometry) shadeLines.push({ level, points });
     }
   }
-  return { lines, shadeAreas, shadeLines, extent };
+  const pois: Poi[] = [];
+  for (const name of POI_LAYERS) {
+    const layer = layers[name];
+    if (layer === undefined) continue;
+    for (let i = 0; i < layer.length; i += 1) {
+      const feature = layer.feature(i);
+      const kind = poiKind(name, feature.properties['level']);
+      const p = feature.loadGeometry()[0]?.[0];
+      if (kind === undefined || p === undefined) continue;
+      // Points outside the tile proper are the neighbour's (tile buffer).
+      if (p.x < 0 || p.y < 0 || p.x >= layer.extent || p.y >= layer.extent) continue;
+      pois.push({ kind, at: gridToLngLat(x * layer.extent + p.x, y * layer.extent + p.y, WALK_GRAPH_ZOOM, layer.extent) });
+    }
+  }
+  // Off-leash places for "Find nearby": only off-leash areas and dog parks —
+  // never dog=yes (leash rule unknown, CLAUDE.md §6). One point per piece;
+  // pieces of one area in several tiles share the feature id.
+  const offLeash = layers['offLeash'];
+  if (offLeash !== undefined) {
+    for (let i = 0; i < offLeash.length; i += 1) {
+      const feature = offLeash.feature(i);
+      const level = feature.properties['level'];
+      if (level !== 'off_leash' && level !== 'off_leash_fenced') continue;
+      const ring = feature.loadGeometry()[0];
+      if (ring === undefined || ring.length === 0) continue;
+      const cx = ring.reduce((sum, p) => sum + p.x, 0) / ring.length;
+      const cy = ring.reduce((sum, p) => sum + p.y, 0) / ring.length;
+      const name = feature.properties['name'];
+      pois.push({
+        kind: 'offLeash',
+        at: gridToLngLat(x * offLeash.extent + cx, y * offLeash.extent + cy, WALK_GRAPH_ZOOM, offLeash.extent),
+        ...(feature.id === undefined ? {} : { id: feature.id }),
+        ...(typeof name === 'string' && name !== '' ? { name } : {}),
+        fenced: level === 'off_leash_fenced',
+      });
+    }
+  }
+  return { lines, shadeAreas, shadeLines, pois, extent };
 }
 
 /** Grid units per metre at a z14 tile row (Web Mercator scale grows with latitude). */
@@ -109,13 +158,24 @@ export function graphTilesFor(points: readonly LngLat[]): [number, number][] | u
 }
 
 export type GraphOutcome =
-  | { readonly ok: true; readonly graph: WalkGraph }
+  | { readonly ok: true; readonly graph: WalkGraph; readonly pois: readonly Poi[] }
   | { readonly ok: false; readonly reason: 'tooFar' | 'unavailable' };
 
 /**
  * Keeps decoded tiles in memory, so dragging a waypoint re-routes without
  * touching the network. One instance per tile file.
  */
+/** One reader per tile file, shared by the route planner and "Find nearby", so tiles load once. */
+const shared = new Map<string, WalkGraphSource>();
+export function walkGraphSourceFor(url: string): WalkGraphSource {
+  let source = shared.get(url);
+  if (source === undefined) {
+    source = new WalkGraphSource(url);
+    shared.set(url, source);
+  }
+  return source;
+}
+
 export class WalkGraphSource {
   private readonly archive: PMTiles;
   private readonly tiles = new Map<string, Promise<DecodedTile>>();
@@ -138,6 +198,35 @@ export class WalkGraphSource {
     return pending;
   }
 
+  /**
+   * Amenities and off-leash places in the z14 tiles around a point, `ring`
+   * tiles out in every direction. Off-leash areas split over several tiles
+   * are listed once.
+   */
+  async poisNear(point: LngLat, ring: number): Promise<Poi[] | undefined> {
+    const n = 2 ** WALK_GRAPH_ZOOM;
+    const cx = lngToX(point[0], n);
+    const cy = latToY(point[1], n);
+    const tiles: [number, number][] = [];
+    for (let dx = -ring; dx <= ring; dx += 1) for (let dy = -ring; dy <= ring; dy += 1) tiles.push([cx + dx, cy + dy]);
+    try {
+      const decoded = await Promise.all(tiles.map(([x, y]) => this.tile(x, y)));
+      const seen = new Set<string>();
+      return decoded
+        .flatMap((d) => d.pois)
+        .filter((p) => {
+          if (p.id === undefined) return true;
+          const key = `${p.kind}:${p.id}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+    } catch (cause) {
+      console.warn('[nearby] tiles failed', cause);
+      return undefined;
+    }
+  }
+
   async graphAround(points: readonly LngLat[]): Promise<GraphOutcome> {
     const tiles = graphTilesFor(points);
     if (tiles === undefined) return { ok: false, reason: 'tooFar' };
@@ -154,7 +243,11 @@ export class WalkGraphSource {
         ),
         sideReach: ROUTE_SHADE_SIDE_REACH_M * perMetre,
       };
-      return { ok: true, graph: buildGraph(decoded.flatMap((d) => d.lines), WALK_GRAPH_ZOOM, extent, shade) };
+      return {
+        ok: true,
+        graph: buildGraph(decoded.flatMap((d) => d.lines), WALK_GRAPH_ZOOM, extent, shade),
+        pois: decoded.flatMap((d) => d.pois),
+      };
     } catch (cause) {
       console.warn('[route] graph tiles failed', cause);
       return { ok: false, reason: 'unavailable' };

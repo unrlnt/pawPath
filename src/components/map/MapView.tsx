@@ -12,6 +12,7 @@ import { useEffect, useRef } from 'react';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 import {
+  LAYER_MIN_ZOOM,
   MAP_ATTRIBUTION,
   MAP_MAX_ZOOM,
   MAP_MIN_ZOOM,
@@ -19,9 +20,11 @@ import {
   MAP_STYLE_URL,
 } from '../../config';
 import { SOURCE_ATTRIBUTION } from '../../data/attribution';
-import { isLayerKey, type FeatureLevel, type LayerKey } from '../../data/layers';
+import { isFeatureLevel, isLayerKey, type FeatureLevel, type LayerKey } from '../../data/layers';
 import { GLYPHS, registerIcons } from '../../map/icons';
-import type { PawBySurface } from '../../lib/conditions/pawBySurface';
+import type { PawsByExposure } from '../../lib/conditions/pawBySurface';
+import { annotateSurfaceShade } from '../../map/surfaceShade';
+import type { Exposure } from '../../lib/routing/shade';
 import type { WaterWarnings } from '../../data/sources/waterWarnings';
 import {
   PAWPATH_SOURCE_ID,
@@ -31,8 +34,9 @@ import {
   surfacePaint,
   waterIcon,
 } from '../../map/pawpathLayers';
-import { popupModel, type PopupContext } from '../../map/popupModel';
+import { osmUrlFor, popupModel, type PopupContext } from '../../map/popupModel';
 import { warmBasemap } from '../../map/warmBasemap';
+import { reportKindFor, type ReportKind } from '../../lib/notes';
 import type { LngLat, RouteSegment } from '../../lib/routing/route';
 import { palette, pawRisk } from '../../styles/tokens';
 
@@ -97,7 +101,7 @@ export interface MapViewProps {
   /** Levels switched off in the filter sheet (dog=yes until opted in). */
   readonly disabledLevels: readonly FeatureLevel[];
   /** Live paw estimate per surface kind: recolours every path by its own surface. */
-  readonly pawBySurface: PawBySurface | undefined;
+  readonly paws: PawsByExposure | undefined;
   /** Runtime water warnings; named bathing sites turn red. */
   readonly warnings: WaterWarnings;
   readonly userPosition: { lat: number; lng: number } | undefined;
@@ -114,9 +118,21 @@ export interface MapViewProps {
   readonly onAttributionHeight: (px: number) => void;
   /** The map could not start (no WebGL, or the GPU context was lost). */
   readonly onMapError: (message: string) => void;
+  /**
+   * While set, reports the map position under a screen point (fractions of
+   * the map's width and height) on every move — the report crosshair.
+   */
+  readonly crosshair: { readonly x: number; readonly y: number } | undefined;
+  readonly onCrosshairMove: (p: { lat: number; lng: number }) => void;
+  /** A place to point out ("Find nearby" result). */
+  readonly highlight: LngLat | undefined;
+  /** Tapped "Not there anymore?" in a bench, bin or tap popup. */
+  readonly onReportGone: (gone: { kind: ReportKind; lat: number; lng: number; osmUrl: string | undefined }) => void;
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
+
+const isExposure = (v: unknown): v is Exposure => v === 'sun' || v === 'light' || v === 'medium' || v === 'dense';
 
 /** Popup body built from DOM nodes and textContent only — OSM text is untrusted input. */
 function popupContent(
@@ -124,6 +140,7 @@ function popupContent(
   properties: Record<string, unknown>,
   featureId: unknown,
   context: PopupContext,
+  onReportGone: (() => void) | undefined,
 ): HTMLElement {
   const model = popupModel(layer, properties, featureId, context);
   const root = document.createElement('div');
@@ -190,6 +207,14 @@ function popupContent(
     link.textContent = 'Something wrong? Fix it on OpenStreetMap';
     root.append(link);
   }
+  if (onReportGone !== undefined) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'mt-2 block min-h-[44px] w-full rounded-full bg-creamDeep px-3 text-sm font-bold text-ink';
+    button.textContent = 'Not there anymore? Report it';
+    button.addEventListener('click', onReportGone);
+    root.append(button);
+  }
   return root;
 }
 
@@ -199,7 +224,7 @@ export default function MapView({
   tilesUrl,
   enabledLayers,
   disabledLevels,
-  pawBySurface,
+  paws,
   warnings,
   userPosition,
   onViewportChange,
@@ -208,13 +233,17 @@ export default function MapView({
   fit,
   onAttributionHeight,
   onMapError,
+  onReportGone,
+  crosshair,
+  onCrosshairMove,
+  highlight,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const styleReady = useRef(false);
   // Latest props for handlers registered once.
-  const latest = useRef({ tilesUrl, enabledLayers, disabledLevels, pawBySurface, warnings, userPosition, onViewportChange, onDropPin, route });
-  latest.current = { tilesUrl, enabledLayers, disabledLevels, pawBySurface, warnings, userPosition, onViewportChange, onDropPin, route };
+  const latest = useRef({ tilesUrl, enabledLayers, disabledLevels, paws, warnings, userPosition, onViewportChange, onDropPin, route, onReportGone });
+  latest.current = { tilesUrl, enabledLayers, disabledLevels, paws, warnings, userPosition, onViewportChange, onDropPin, route, onReportGone };
   const markers = useRef<maplibregl.Marker[]>([]);
 
   /** Adds our source and layers if the style is ready and the URL known. Idempotent. */
@@ -239,17 +268,20 @@ export default function MapView({
       }
     }
     // Every path coloured by the live paw band of its own surface.
-    const paws = latest.current.pawBySurface;
+    // Every path coloured by the live paw band of its own surface, under its
+    // own shade (feature-state set by annotateSurfaceShade).
+    const live = latest.current.paws;
+    const bandsOf = (p: PawsByExposure[Exposure]) => ({
+      asphalt: p.asphalt.band,
+      concrete: p.concrete.band,
+      sand: p.sand.band,
+      gravel: p.gravel.band,
+      grass: p.grass.band,
+    });
     const paint = surfacePaint(
-      paws === undefined
+      live === undefined
         ? undefined
-        : {
-            asphalt: paws.asphalt.band,
-            concrete: paws.concrete.band,
-            sand: paws.sand.band,
-            gravel: paws.gravel.band,
-            grass: paws.grass.band,
-          },
+        : { sun: bandsOf(live.sun), light: bandsOf(live.light), medium: bandsOf(live.medium), dense: bandsOf(live.dense) },
     );
     for (const id of SURFACE_LAYER_IDS) {
       if (map.getLayer(id) === undefined) continue;
@@ -486,6 +518,16 @@ export default function MapView({
       syncRoute(map);
     });
 
+    // Shade per path for the paw colours: annotate newly loaded paths once the
+    // map settles, only while paths are shown (they draw from z15).
+    const shadeSeen = new Set<string | number>();
+    map.on('idle', () => {
+      const id = SURFACE_LAYER_IDS[0];
+      if (!styleReady.current || map.getLayer(id) === undefined) return;
+      if (map.getLayoutProperty(id, 'visibility') !== 'visible' || map.getZoom() < LAYER_MIN_ZOOM.surface) return;
+      annotateSurfaceShade(map, shadeSeen);
+    });
+
     const emitViewport = (): void => {
       const c = map.getCenter();
       latest.current.onViewportChange({ centre: { lat: c.lat, lng: c.lng }, zoom: map.getZoom() });
@@ -554,13 +596,32 @@ export default function MapView({
       const [hit] = map.queryRenderedFeatures(event.point, { layers });
       const layer = hit?.sourceLayer;
       if (hit === undefined || layer === undefined || !isLayerKey(layer)) return;
-      new maplibregl.Popup({ closeButton: false, maxWidth: '260px' })
+      const level = hit.properties['level'];
+      const kind = reportKindFor(layer, typeof level === 'string' && isFeatureLevel(level) ? level : undefined);
+      const at =
+        hit.geometry.type === 'Point'
+          ? { lng: hit.geometry.coordinates[0] as number, lat: hit.geometry.coordinates[1] as number }
+          : { lng: event.lngLat.lng, lat: event.lngLat.lat };
+      const popup = new maplibregl.Popup({ closeButton: false, maxWidth: '260px' });
+      popup
         .setLngLat(event.lngLat)
         .setDOMContent(
-          popupContent(layer, hit.properties, hit.id, {
-            ...(latest.current.pawBySurface === undefined ? {} : { pawBySurface: latest.current.pawBySurface }),
-            warnings: latest.current.warnings,
-          }),
+          popupContent(
+            layer,
+            hit.properties,
+            hit.id,
+            {
+              ...(latest.current.paws === undefined ? {} : { paws: latest.current.paws }),
+              ...(isExposure(hit.state['shade']) ? { shade: hit.state['shade'] } : {}),
+              warnings: latest.current.warnings,
+            },
+            kind === undefined
+              ? undefined
+              : () => {
+                  popup.remove();
+                  latest.current.onReportGone({ kind, ...at, osmUrl: osmUrlFor(hit.id) });
+                },
+          ),
         )
         .addTo(map);
     });
@@ -609,7 +670,7 @@ export default function MapView({
     const map = mapRef.current;
     if (map !== null) syncPawpath(map);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tilesUrl, enabledLayers, disabledLevels, pawBySurface, warnings]);
+  }, [tilesUrl, enabledLayers, disabledLevels, paws, warnings]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -622,6 +683,41 @@ export default function MapView({
     if (map !== null) syncRoute(map);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route?.waypoints, route?.segments, route === undefined]);
+
+  // "Find nearby" result: a pulsing ring on the place.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map === null || highlight === undefined) return;
+    const el = document.createElement('div');
+    el.setAttribute('aria-hidden', 'true');
+    el.className = 'pointer-events-none relative h-12 w-12';
+    const ping = document.createElement('span');
+    ping.className = 'absolute inset-0 animate-ping rounded-full bg-terracotta opacity-40';
+    const ring = document.createElement('span');
+    ring.className = 'absolute inset-2 rounded-full border-4 border-terracotta bg-cream/40';
+    el.append(ping, ring);
+    const marker = new maplibregl.Marker({ element: el }).setLngLat([highlight[0], highlight[1]]).addTo(map);
+    return () => {
+      marker.remove();
+    };
+  }, [highlight?.[0], highlight?.[1]]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Report crosshair: where on the map the fixed screen point is.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map === null || crosshair === undefined) return;
+    const emit = (): void => {
+      const canvas = map.getCanvas();
+      const p = map.unproject([canvas.clientWidth * crosshair.x, canvas.clientHeight * crosshair.y]);
+      onCrosshairMove({ lat: p.lat, lng: p.lng });
+    };
+    emit();
+    map.on('move', emit);
+    return () => {
+      map.off('move', emit);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [crosshair?.x, crosshair?.y]);
 
   useEffect(() => {
     if (fit === undefined) return;

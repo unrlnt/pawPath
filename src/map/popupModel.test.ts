@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { parseWaterWarnings } from '../data/sources/waterWarnings';
-import { pawBySurface } from '../lib/conditions/pawBySurface';
+import { pawsByExposure } from '../lib/conditions/pawBySurface';
 import { osmUrlFor, popupModel } from './popupModel';
 
 describe('osmUrlFor', () => {
@@ -50,12 +50,18 @@ describe('popupModel', () => {
 });
 
 describe('live paw reading for paths (Phase 5)', () => {
-  const hot = { pawBySurface: pawBySurface({ airC: 30, shortwaveWm2: 900, windKmh: 3 }) };
+  const hot = { paws: pawsByExposure({ airC: 30, shortwaveWm2: 900, windKmh: 3 }) };
 
   it('calls an asphalt path too hot and a grass path kind, under the same sun', () => {
     expect(popupModel('surface', { level: 'high', surface: 'asphalt' }, 22, hot).title).toBe('Too hot for paws right now');
     expect(popupModel('surface', { level: 'low', surface: 'grass' }, 22, hot).title).toBe('Kind to paws right now');
     expect(popupModel('surface', { level: 'high', surface: 'asphalt' }, 22, hot).details[0]).toMatch(/^Paws now: about \d+–\d+ °C/);
+  });
+
+  it('reads a path under trees as cooler, and says so', () => {
+    const shaded = popupModel('surface', { level: 'high', surface: 'asphalt' }, 22, { ...hot, shade: 'dense' });
+    expect(shaded.title).toBe('Kind to paws right now');
+    expect(shaded.details[0]).toMatch(/in the shade of trees/);
   });
 
   it('falls back to the material when no weather is loaded', () => {

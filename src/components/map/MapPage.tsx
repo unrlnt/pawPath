@@ -9,6 +9,7 @@ import {
   DEFAULT_ENABLED_LAYERS,
   MAP_DEFAULT_ZOOM,
   MAP_FALLBACK_CENTRE,
+  REPORT_CROSSHAIR_Y,
   STORAGE_KEYS,
   WATER_WARNINGS_REFRESH_MS,
 } from '../../config';
@@ -25,7 +26,7 @@ import { NO_WARNINGS, loadWaterWarnings, type WaterWarnings } from '../../data/s
 import { isStoredLocation, readStored, writeStored } from '../../lib/storage';
 import ConditionsCard from '../conditions/ConditionsCard';
 import { useConditions } from '../conditions/useConditions';
-import { pawBySurface } from '../../lib/conditions/pawBySurface';
+import { pawsByExposure } from '../../lib/conditions/pawBySurface';
 import {
   AdSlot,
   Banner,
@@ -35,6 +36,9 @@ import {
   ZoomHint,
   layersAwaitingZoom,
 } from './Chrome';
+import NearbySheet from '../nearby/NearbySheet';
+import { useNearby } from '../nearby/useNearby';
+import ReportSheet, { type ReportTarget } from '../report/ReportSheet';
 import RoutePanel, { SavedRoutesSheet } from '../route/RoutePanel';
 import { useRoutePlanner } from '../route/useRoutePlanner';
 import { useWatchPosition } from '../route/useWatchPosition';
@@ -76,6 +80,12 @@ export default function MapPage() {
   const [attributionPx, setAttributionPx] = useState(24);
   const [mapError, setMapError] = useState<string | undefined>(undefined);
   const online = useOnline();
+  const [report, setReport] = useState<ReportTarget | undefined>(undefined);
+  const [nearbyOpen, setNearbyOpen] = useState(false);
+  const [highlight, setHighlight] = useState<LngLat | undefined>(undefined);
+  const nearby = useNearby(tilesUrl);
+  const [crosshairAt, setCrosshairAt] = useState<{ lat: number; lng: number } | undefined>(undefined);
+  const crosshair = useMemo(() => (report?.change === 'missing' ? { x: 0.5, y: REPORT_CROSSHAIR_Y } : undefined), [report?.change]);
   const [warnings, setWarnings] = useState<WaterWarnings>(NO_WARNINGS);
 
   // Warnings change during the day in season; refresh every 30 minutes.
@@ -107,7 +117,7 @@ export default function MapPage() {
   const conditions = useConditions(geolocation.position ?? viewport?.centre);
   // Recomputed only when the current hour changes, not on every render.
   const currentHour = conditions.status === 'ready' ? conditions.summary.current.hour : undefined;
-  const paws = useMemo(() => (currentHour === undefined ? undefined : pawBySurface(currentHour)), [currentHour]);
+  const paws = useMemo(() => (currentHour === undefined ? undefined : pawsByExposure(currentHour)), [currentHour]);
 
   // Route planner (Phase 9).
   const planner = useRoutePlanner(tilesUrl, currentHour);
@@ -145,6 +155,24 @@ export default function MapPage() {
     if (planner.active && planner.waypoints.length > 0) fitTo(planner.waypoints);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** Where "Find nearby" measures from: you, or else the map centre. */
+  const nearbyFrom = (): LngLat | undefined =>
+    geolocation.position !== undefined
+      ? [geolocation.position.lng, geolocation.position.lat]
+      : viewport === undefined
+        ? undefined
+        : [viewport.centre.lng, viewport.centre.lat];
+
+  // Point out the closest result as soon as the list arrives.
+  useEffect(() => {
+    if (nearby.state.s !== 'found') return;
+    const first = nearby.state.results[0]?.poi.at;
+    setHighlight(first);
+    const from = nearbyFrom();
+    if (first !== undefined && from !== undefined) fitTo([from, first]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nearby.state]);
 
   const routeOverlay = useMemo<RouteOverlay | undefined>(
     () =>
@@ -223,7 +251,7 @@ export default function MapPage() {
           tilesUrl={tilesUrl}
           enabledLayers={enabled}
           disabledLevels={disabledLevels}
-          pawBySurface={paws}
+          paws={paws}
           warnings={warnings}
           userPosition={
             watch.position !== undefined ? { lat: watch.position[1], lng: watch.position[0] } : (geolocation.position ?? pin)
@@ -232,6 +260,13 @@ export default function MapPage() {
           fit={fit}
           onAttributionHeight={setAttributionPx}
           onMapError={setMapError}
+          crosshair={crosshair}
+          highlight={highlight}
+          onCrosshairMove={setCrosshairAt}
+          onReportGone={(gone) => {
+            planner.stop();
+            setReport({ change: 'gone', ...gone });
+          }}
           onViewportChange={setViewport}
           onDropPin={(position) => {
             setPin(position);
@@ -279,8 +314,48 @@ export default function MapPage() {
             <ControlButton label="Recentre on me" onClick={recentre}>
               ◎
             </ControlButton>
+            {!planner.active && report === undefined && !nearbyOpen ? (
+              <ControlButton label="Find nearby" onClick={() => setNearbyOpen(true)}>
+                📍
+              </ControlButton>
+            ) : null}
+            {!planner.active && report === undefined && !nearbyOpen ? (
+              <ControlButton label="Report something missing" onClick={() => setReport({ change: 'missing' })}>
+                ⚑
+              </ControlButton>
+            ) : null}
           </div>
-          {planner.active ? (
+          {nearbyOpen ? (
+            <NearbySheet
+              state={nearby.state}
+              fromLabel={geolocation.position !== undefined ? 'from your location' : 'from the map centre'}
+              onPick={(kind) => {
+                const from = nearbyFrom();
+                if (from !== undefined) void nearby.search(kind, from);
+              }}
+              onShow={(r) => {
+                setHighlight(r.poi.at);
+                setCentre({ lat: r.poi.at[1], lng: r.poi.at[0] });
+                setZoom(17);
+              }}
+              onWalk={(r) => {
+                const from = nearbyFrom();
+                if (from === undefined) return;
+                setNearbyOpen(false);
+                nearby.reset();
+                setHighlight(undefined);
+                planner.startWith([from, r.poi.at]);
+                fitTo([from, r.poi.at]);
+              }}
+              onClose={() => {
+                setNearbyOpen(false);
+                nearby.reset();
+                setHighlight(undefined);
+              }}
+            />
+          ) : report !== undefined ? (
+            <ReportSheet target={report} where={crosshairAt} onClose={() => setReport(undefined)} />
+          ) : planner.active ? (
             <RoutePanel
               planner={planner}
               walking={walking}
@@ -304,6 +379,21 @@ export default function MapPage() {
             <LayerToggles enabled={enabled} onToggle={toggleLayer} onOpenFilters={() => setFiltersOpen(true)} />
           )}
         </div>
+
+        {report?.change === 'missing' ? (
+          // The spot being reported: move the map under this cross.
+          <div
+            aria-hidden
+            className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2 -translate-y-1/2"
+            style={{ top: `${REPORT_CROSSHAIR_Y * 100}%` }}
+          >
+            <div className="relative h-10 w-10">
+              <span className="absolute left-1/2 top-0 h-10 w-[3px] -translate-x-1/2 rounded-full bg-ink" />
+              <span className="absolute left-0 top-1/2 h-[3px] w-10 -translate-y-1/2 rounded-full bg-ink" />
+              <span className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-cream bg-terracotta" />
+            </div>
+          </div>
+        ) : null}
 
         {savedOpen ? (
           <SavedRoutesSheet

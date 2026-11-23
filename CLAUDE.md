@@ -567,14 +567,16 @@ Constraints that keep this compatible with §2:
       Phase 7: in-browser A* on the `walk` tile layer, dog- and heat-aware;
       drag stops and the line, undo, round trip, save, share link, GPX,
       "walk it"; shade along the route preferred in the heat and shown.
-      Verified in the browser at Almere. Routing *via* amenities: after
-      launch.)*
+      Verified in the browser at Almere. "Add a stop" (water, bags, bin,
+      bench) and "Find nearby" done 2026-11-23.)*
 - [ ] Phase 10 — Community mirrors *(idea)*
 - [~] Phase 11 — Mobile app *(step 1, PWA, done 2026-11-23: installable,
       offline shell and offline map for areas already viewed; verified in
       Chromium. Capacitor not started.)*
-- [ ] Phase 12 — Report what's missing *(idea: anonymous OSM Notes, permanent
-      features only)*
+- [x] Phase 12 — Report what's missing *(done 2026-11-23: anonymous OSM
+      notes for benches, bins, dog bins, bag dispensers and taps — "missing
+      here" with a crosshair, "not there anymore" from a popup; one per
+      minute; verified in the browser against an intercepted API.)*
 
 ### Phase 2R — verification (2026-11-21)
 
@@ -715,6 +717,86 @@ proxy certificate in a throwaway copy), Flevoland tiles mounted:
   previous `tiles` image instead. Nothing else in that image changed.
 
 ### Decisions log
+
+**Find nearby (2026-11-23)**
+
+- **A 📍 button opens "Find nearby"**: Bin · Dog-waste bin · Bag dispenser ·
+  Bench · Drinking water · Off-leash area. It lists the three closest
+  (`NEARBY_RESULTS`) with distance and compass direction, "as the crow
+  flies" — never a walking distance it has not computed. Measured from the
+  walker's position when known, else the map centre (the sheet says which).
+- **Same tiles as the planner**: `walkGraphSource.poisNear()` reads the z14
+  tiles around the point through the planner's shared reader
+  (`walkGraphSourceFor`), first ±1 tile, then ±3 (`NEARBY_TILE_RINGS`,
+  roughly 5 and 17 km wide). No new data, no server. Pure ranking in
+  `src/lib/nearby.ts` (tested).
+- **Off-leash means only `off_leash` and `off_leash_fenced`** — never
+  `dog=yes` (§6). Fenced ones read "Dog park", with the name when mapped.
+  "Bin" accepts dog bins too; "Bag dispenser" only real dispensers.
+- **Show / walk there**: tapping a result pulses a marker on it and centres
+  the map; "Walk there" opens the route planner from the walker to it.
+  Nothing found: "No … is mapped within a few kilometres. Know one? Report
+  it with ⚑."
+- Browser, Almere centre: bin 250 m east, bench 80 m east, tap 1.6 km
+  south-east, dog-waste bin 3.6 km south-west, off-leash "Dog park ·
+  Stadswerfpark" 660 m south-east, bags none; 0.4–1.5 s; "Walk there" →
+  460 m, about 7 min. No page errors.
+
+**Shade in the map's path colours (2026-11-23)**
+
+- **Same lookup as the route planner, on the map**: when the map is idle
+  with paths shown (z15+), `annotateSurfaceShade()` (`src/map/surfaceShade.ts`)
+  takes the loaded `surface` and `shade` features (`querySourceFeatures`),
+  tests every new path segment with `stretchShade` (8 m side reach, tree rows
+  within 10 m) and sets **feature-state `shade`** on the path: the level that
+  covers most of it when at least half is shaded, else `sun`. Tile pieces of
+  one path are added up by id; each path is done once.
+- **The paint reads the state**: `surfacePaint()` now takes paw bands per
+  exposure (sun, light, medium, dense — `pawsByExposure()`), and colour and
+  width pick the band of the path's surface *under its shade*
+  (`['feature-state','shade']`). No re-fetch, no server.
+- **Popups** say it: "about 31–35 °C in the shade of trees (estimate)" /
+  "in light shade (trees alongside)" / "in the sun".
+- Browser, Almeerderhout area, simulated heat (31 °C, 900 W/m²), z16: open
+  asphalt terracotta (10 paths), asphalt along the forest edge yellow (light
+  shade), unpaved forest paths green with dense/medium shade; no style errors.
+
+**Phase 9c — add a stop (2026-11-23)**
+
+- **"Add a stop on the way: Water · Bags · Bin · Bench"** in the route panel.
+  The planner already loads the z14 tiles around the route; their benches,
+  waste and drinking-water points (inside each tile proper, not the buffer)
+  are kept with the graph, and the pure `chooseStop()` picks the one closest
+  to the current route line (ties: earlier on the route) within
+  `ROUTE_STOP_MAX_OFF_ROUTE_M` = 400 m, skipping one already used as a stop
+  (≤ 20 m). It is inserted with the existing `insertVia`, so it lands between
+  the right stops and undo covers it.
+- Bins accept dog bins too; "Bags" only real bag dispensers. Plain messages:
+  "Added a bench about 10 m off your route", "No poop-bag dispenser is mapped
+  within 400 m of this walk", "Your walk already passes a …".
+- Browser, Almere centre: bench +10 m, bin +10 m, tap +180 m (walk 1.1 →
+  1.4 km), bags: none within 400 m. Found while testing: an older message's
+  timer cleared the newer one — one timer now.
+
+**Phase 12 — report what's missing (2026-11-23)**
+
+- **Anonymous OSM notes** (`POST /api/0.6/notes.json`, form body — no
+  preflight, no account, no key) from `src/data/sources/osmNotes.ts`; the
+  text is built by the pure `src/lib/notes.ts` (tested): what, suggested
+  tags, the walker's optional comment, "reported anonymously via PawPath",
+  "please check on the ground", ≤ 2,000 characters.
+- **Permanent features only**: bench, waste bin, dog-waste bin, poop-bag
+  dispenser, drinking-water tap. Never water, off-leash or anything temporary.
+- **Two ways in**: a ⚑ button ("Report something missing") shows a crosshair
+  at 30 % of the map height (`REPORT_CROSSHAIR_Y`) — first placed at the
+  centre, where the sheet covered it — and the map reports the point under
+  it; and "Not there anymore? Report it" in popups of benches, bins and taps,
+  which links the mapped object.
+- **One note per minute per browser** (`NOTE_MIN_INTERVAL_MS`, localStorage),
+  enforced in the source; the sheet says the note is public and anonymous and
+  shows exactly what will be sent; after sending, a link to the note.
+- `VITE_OSM_NOTES_URL` can point at the OSM dev API for manual testing.
+  Browser tests intercept the request — no real notes were created.
 
 **Phase 11, step 1 — PWA (2026-11-23)**
 
@@ -951,8 +1033,8 @@ stretch goal)**
   scrub), tree rows as round dots; hatch tiles drawn at runtime like the icons.
 - **Not done (stretch)**: canopy fraction for paths running through shade
   polygons — the per-path estimate assumes full sun, which is the safe side.
-  *Done for planned routes in Phase 9b; the map's path colours still assume
-  full sun.*
+  *Done for planned routes in Phase 9b, and for the map's path colours on
+  2026-11-23 (see "Shade in the map's path colours").*
 - **Mobile app** recorded as Phase 11 (owner idea): PWA first, Capacitor later.
 
 **Phase 4 + owner feedback (2026-11-22)**
