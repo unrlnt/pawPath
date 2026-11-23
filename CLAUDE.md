@@ -845,6 +845,12 @@ proxy certificate in a throwaway copy), Flevoland tiles mounted:
   shows exactly what will be sent; after sending, a link to the note.
 - `VITE_OSM_NOTES_URL` can point at the OSM dev API for manual testing.
   Browser tests intercept the request — no real notes were created.
+- **No login, no extra caps (owner, 2026-11-23).** Abuse through PawPath is
+  no easier than on openstreetmap.org itself, a note never edits the map, and
+  OSM moderates notes. A login would break §2.2/§2.4, and OSM OAuth would
+  stop almost every walker from reporting. The owner reviews incoming notes
+  with his OSM account (search the notes for "PawPath"). Revisit only if the
+  notes turn out to be a burden for OSM volunteers.
 
 **Phase 11, step 1 — PWA (2026-11-23)**
 
