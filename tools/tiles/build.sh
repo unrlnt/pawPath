@@ -37,6 +37,27 @@ mkdir -p "$WORK_DIR/filtered" "$OUT_DIR"
 
 log() { printf '[tiles %s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
 
+# Download an extract, trying mirrors in turn. A Geofabrik URL also tries the
+# same region on download.openstreetmap.fr, which uses the same region paths
+# (europe/netherlands, europe/germany, …): Geofabrik answered 404 for the
+# whole-Netherlands file on the first real deploy (2026-11-23).
+MIRROR_EXTRACTS=${MIRROR_EXTRACTS:-https://download.openstreetmap.fr/extracts}
+download_extract() {
+  local url=$1 out=$2 candidates=("$1")
+  if [[ "$url" =~ ^https://download\.geofabrik\.de/(.+-latest\.osm\.pbf)$ ]]; then
+    candidates+=("$MIRROR_EXTRACTS/${BASH_REMATCH[1]}")
+  fi
+  for candidate in "${candidates[@]}"; do
+    log "downloading $candidate"
+    if curl -fsSL --show-error --retry 3 --retry-delay 30 -o "$out" "$candidate"; then
+      return 0
+    fi
+    log "  failed: $candidate"
+    rm -f "$out"
+  done
+  return 1
+}
+
 if [[ ! -s "$PLANETILER_JAR" ]]; then
   log "fetching planetiler $PLANETILER_VERSION"
   curl -fsSL -o "$PLANETILER_JAR" \
@@ -50,8 +71,7 @@ for source in "$@"; do
   filtered="$WORK_DIR/filtered/part-$i.osm.pbf"
   if [[ "$source" == https://* ]]; then
     input="$WORK_DIR/download-$i.osm.pbf"
-    log "downloading $source"
-    curl -fsSL --show-error --retry 3 --retry-delay 30 -o "$input" "$source"
+    download_extract "$source" "$input" || { log "no mirror had $source"; exit 1; }
     delete_after=1
   else
     input=$source

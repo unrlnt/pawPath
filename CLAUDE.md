@@ -699,6 +699,19 @@ proxy certificate in a throwaway copy), Flevoland tiles mounted:
 
 ### Decisions log
 
+**First deploy (2026-11-23)**
+
+- **Coolify deploy worked (1.5 min), the first tile build did not**:
+  `download.geofabrik.de/europe/netherlands-latest.osm.pbf` → 404, so the
+  builder gave up and would have waited 6 h. Cause not confirmed from here
+  (Geofabrik is unreachable from the sandbox); older sources suggest the
+  Netherlands is published per province there. Fix: `build.sh` tries the same
+  region on `download.openstreetmap.fr/extracts/` (same paths, both NL and DE
+  answer 200) when Geofabrik fails, and the builder retries after 30 min while
+  no tiles exist (`RETRY_EMPTY`). Tested: a Flevoland build from the Geofabrik
+  URL fell through to the mirror and completed; an unknown region logs "no
+  mirror had …" and "retrying after 30m".
+
 **Phase 7 — launch preparation (2026-11-22)**
 
 - **Attribution can never be covered**: MapView measures the attribution
