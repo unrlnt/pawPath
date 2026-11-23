@@ -10,6 +10,8 @@ import {
   MAP_DEFAULT_ZOOM,
   MAP_FALLBACK_CENTRE,
   REPORT_CROSSHAIR_Y,
+  REPORT_SPOT_LIFT,
+  REPORT_START_ZOOM,
   STORAGE_KEYS,
   WATER_WARNINGS_REFRESH_MS,
 } from '../../config';
@@ -38,7 +40,7 @@ import {
 } from './Chrome';
 import NearbySheet from '../nearby/NearbySheet';
 import { useNearby } from '../nearby/useNearby';
-import ReportSheet, { type ReportTarget } from '../report/ReportSheet';
+import ReportSheet, { ReportPlaceBar, type ReportTarget } from '../report/ReportSheet';
 import RoutePanel, { SavedRoutesSheet } from '../route/RoutePanel';
 import { useRoutePlanner } from '../route/useRoutePlanner';
 import { useWatchPosition } from '../route/useWatchPosition';
@@ -85,7 +87,11 @@ export default function MapPage() {
   const [highlight, setHighlight] = useState<LngLat | undefined>(undefined);
   const nearby = useNearby(tilesUrl);
   const [crosshairAt, setCrosshairAt] = useState<{ lat: number; lng: number } | undefined>(undefined);
-  const crosshair = useMemo(() => (report?.change === 'missing' ? { x: 0.5, y: REPORT_CROSSHAIR_Y } : undefined), [report?.change]);
+  /** Reporting something missing: first place the spot, then describe it. */
+  const [reportStep, setReportStep] = useState<'place' | 'details'>('place');
+  const [reportAt, setReportAt] = useState<{ lat: number; lng: number } | undefined>(undefined);
+  const placing = report?.change === 'missing' && reportStep === 'place';
+  const crosshair = useMemo(() => (placing ? { x: 0.5, y: REPORT_CROSSHAIR_Y } : undefined), [placing]);
   const [warnings, setWarnings] = useState<WaterWarnings>(NO_WARNINGS);
 
   // Warnings change during the day in season; refresh every 30 minutes.
@@ -123,7 +129,7 @@ export default function MapPage() {
   const planner = useRoutePlanner(tilesUrl, currentHour);
   const [walking, setWalking] = useState(false);
   const [savedOpen, setSavedOpen] = useState(false);
-  const [fit, setFit] = useState<{ key: number; bounds: [LngLat, LngLat] } | undefined>(undefined);
+  const [fit, setFit] = useState<{ key: number; bounds: [LngLat, LngLat]; lift?: number } | undefined>(undefined);
   const watch = useWatchPosition(walking && planner.active);
   const ready = planner.status.kind === 'ready' ? planner.status.result : undefined;
   const progress = useMemo(
@@ -155,6 +161,12 @@ export default function MapPage() {
     if (planner.active && planner.waypoints.length > 0) fitTo(planner.waypoints);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const closeReport = (): void => {
+    setReport(undefined);
+    setReportStep('place');
+    setReportAt(undefined);
+  };
 
   /** Where "Find nearby" measures from: you, or else the map centre. */
   const nearbyFrom = (): LngLat | undefined =>
@@ -320,7 +332,19 @@ export default function MapPage() {
               </ControlButton>
             ) : null}
             {!planner.active && report === undefined && !nearbyOpen ? (
-              <ControlButton label="Report something missing" onClick={() => setReport({ change: 'missing' })}>
+              <ControlButton
+                label="Report something missing"
+                onClick={() => {
+                  setReport({ change: 'missing' });
+                  setReportStep('place');
+                  setReportAt(undefined);
+                  // You are usually standing at the thing: start the cross on you.
+                  if (geolocation.position !== undefined) {
+                    setCentre({ lat: geolocation.position.lat, lng: geolocation.position.lng });
+                    setZoom(REPORT_START_ZOOM);
+                  }
+                }}
+              >
                 ⚑
               </ControlButton>
             ) : null}
@@ -353,8 +377,37 @@ export default function MapPage() {
                 setHighlight(undefined);
               }}
             />
+          ) : placing ? (
+            <ReportPlaceBar
+              canContinue={crosshairAt !== undefined}
+              onCancel={closeReport}
+              onContinue={() => {
+                if (crosshairAt === undefined) return;
+                setReportAt(crosshairAt);
+                setReportStep('details');
+                const at: LngLat = [crosshairAt.lng, crosshairAt.lat];
+                // Keep the zoom; show the spot above the form.
+                setFit((f) => ({ key: (f?.key ?? 0) + 1, bounds: [at, at], lift: REPORT_SPOT_LIFT }));
+              }}
+            />
           ) : report !== undefined ? (
-            <ReportSheet target={report} where={crosshairAt} onClose={() => setReport(undefined)} />
+            <ReportSheet
+              target={report}
+              where={report.change === 'missing' ? reportAt : undefined}
+              {...(report.change === 'missing'
+                ? {
+                    onMoveSpot: () => {
+                      // Put the cross (map centre) back on the chosen spot.
+                      if (reportAt !== undefined) {
+                        const at: LngLat = [reportAt.lng, reportAt.lat];
+                        setFit((f) => ({ key: (f?.key ?? 0) + 1, bounds: [at, at], lift: 0 }));
+                      }
+                      setReportStep('place');
+                    },
+                  }
+                : {})}
+              onClose={closeReport}
+            />
           ) : planner.active ? (
             <RoutePanel
               planner={planner}
@@ -375,17 +428,18 @@ export default function MapPage() {
               </button>
             </div>
           )}
-          {walking ? null : (
+          {walking || report !== undefined ? null : (
             <LayerToggles enabled={enabled} onToggle={toggleLayer} onOpenFilters={() => setFiltersOpen(true)} />
           )}
         </div>
 
         {report?.change === 'missing' ? (
-          // The spot being reported: move the map under this cross.
+          // Step 1: move the map under this cross. Step 2: the same cross
+          // marks the chosen spot, shown above the form.
           <div
             aria-hidden
             className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2 -translate-y-1/2"
-            style={{ top: `${REPORT_CROSSHAIR_Y * 100}%` }}
+            style={{ top: `${(placing ? REPORT_CROSSHAIR_Y : REPORT_CROSSHAIR_Y - REPORT_SPOT_LIFT) * 100}%` }}
           >
             <div className="relative h-10 w-10">
               <span className="absolute left-1/2 top-0 h-10 w-[3px] -translate-x-1/2 rounded-full bg-ink" />

@@ -9,7 +9,7 @@ import { haversineM } from './graph';
 import type { LngLat } from './route';
 
 /** Amenities the tiles carry, as the planner sees them. */
-export type PoiKind = 'bench' | 'bin' | 'dogBin' | 'bagDispenser' | 'water' | 'offLeash';
+export type PoiKind = 'bench' | 'bin' | 'dogBin' | 'bagDispenser' | 'water' | 'offLeash' | 'toilet';
 
 export interface Poi {
   readonly kind: PoiKind;

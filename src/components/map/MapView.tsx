@@ -110,7 +110,12 @@ export interface MapViewProps {
   /** Route planner overlay; when present, taps edit the route instead of opening popups. */
   readonly route: RouteOverlay | undefined;
   /** Fit the camera to these bounds whenever `fitKey` changes. */
-  readonly fit: { readonly key: number; readonly bounds: [LngLat, LngLat] } | undefined;
+  /**
+   * Camera moves: fit `bounds`, or with `lift` keep the zoom and centre the
+   * first corner that fraction of the map height above the middle (so a
+   * point stays visible above a bottom sheet).
+   */
+  readonly fit: { readonly key: number; readonly bounds: [LngLat, LngLat]; readonly lift?: number } | undefined;
   /**
    * Height of the attribution line in px, so floating controls can sit above
    * it: attribution must stay visible (licence requirement, CLAUDE.md §10).
@@ -721,7 +726,12 @@ export default function MapView({
 
   useEffect(() => {
     if (fit === undefined) return;
-    mapRef.current?.fitBounds([fit.bounds[0] as [number, number], fit.bounds[1] as [number, number]], {
+    const map = mapRef.current;
+    if (fit.lift !== undefined && map !== null) {
+      map.easeTo({ center: fit.bounds[0] as [number, number], offset: [0, -map.getCanvas().clientHeight * fit.lift], duration: 400 });
+      return;
+    }
+    map?.fitBounds([fit.bounds[0] as [number, number], fit.bounds[1] as [number, number]], {
       padding: { top: 140, bottom: 260, left: 40, right: 60 },
       maxZoom: 16,
       duration: 600,

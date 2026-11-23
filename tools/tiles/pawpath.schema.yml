@@ -316,6 +316,26 @@ layers:
             tag_value: bottle
           - key: dog
             tag_value: dog
+  - id: toilets
+    features:
+      - source: osm
+        geometry: centroid
+        min_zoom: 13
+        include_when:
+          amenity: toilets
+        attributes:
+          - key: name
+            tag_value: name
+          - key: access
+            tag_value: access
+          - key: fee
+            tag_value: fee
+          - key: wheelchair
+            tag_value: wheelchair
+          - key: opening_hours
+            tag_value: opening_hours
+          - key: changing_table
+            tag_value: changing_table
   - id: walk
     features:
       - source: osm
@@ -727,6 +747,16 @@ examples:
         amenity: drinking_water
     output:
       - layer: drinkingWater
+        geometry: point
+  - name: public toilets
+    input:
+      source: osm
+      geometry: point
+      tags:
+        amenity: toilets
+        fee: no
+    output:
+      - layer: toilets
         geometry: point
   - name: an unrelated shop is dropped
     input:

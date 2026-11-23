@@ -12,7 +12,7 @@ anything.
 ## How it works
 
 The map data is **OpenStreetMap**, pre-processed once a week into our own
-vector tiles (`pawpath-YYYYMMDD.pmtiles`) and served as a static file. The
+vector tiles (`pawpath-YYYYMMDD-HHMM.pmtiles`) and served as a static file. The
 browser loads only the tiles it looks at. There is no backend and no API key.
 
 ```
@@ -35,7 +35,7 @@ npm run dev          # http://localhost:5173
 npm run typecheck    # tsc --noEmit, strict (app + tools)
 npm test             # vitest — includes the shared layer examples
 npm run tiles:verify # the same examples, run by Planetiler against the schema
-npm run tiles:coverage -- public/tiles/pawpath-YYYYMMDD.pmtiles 52.3508 5.2647
+npm run tiles:coverage -- public/tiles/pawpath-YYYYMMDD-HHMM.pmtiles 52.3508 5.2647
 npm run build        # static bundle into dist/
 ```
 

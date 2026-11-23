@@ -33,4 +33,5 @@ export const LAYER_ICONS: Readonly<Record<LayerKey, string>> = {
   benches: '🪑',
   waste: '🗑️',
   drinkingWater: '🚰',
+  toilets: '🚻',
 };

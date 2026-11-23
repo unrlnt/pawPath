@@ -17,6 +17,7 @@ export const NEARBY_KINDS = {
   bags: { label: 'Bag dispenser', icon: '🛍️', accepts: ['bagDispenser'], noun: 'poop-bag dispenser' },
   bench: { label: 'Bench', icon: '🪑', accepts: ['bench'], noun: 'bench' },
   water: { label: 'Drinking water', icon: '💧', accepts: ['water'], noun: 'drinking-water tap' },
+  toilet: { label: 'Toilet', icon: '🚻', accepts: ['toilet'], noun: 'public toilet' },
   offLeash: { label: 'Off-leash area', icon: '🐾', accepts: ['offLeash'], noun: 'off-leash area' },
 } as const satisfies Record<string, { label: string; icon: string; accepts: readonly PoiKind[]; noun: string }>;
 

@@ -136,7 +136,7 @@ proxy in front.
 |---|---|---|
 | `/assets/*` | 1 year, immutable | hashed file names |
 | `/`, `/index.html` | 5 minutes | |
-| `/tiles/pawpath-YYYYMMDD.pmtiles` | 1 year, immutable | new name per build; range requests; never re-compressed |
+| `/tiles/pawpath-YYYYMMDD-HHMM.pmtiles` | 1 year, immutable | new name per build; range requests; never re-compressed |
 | `/tiles/manifest.json` | 5 minutes | names the current build |
 | `/tiles/water-warnings.json` | 5 minutes | empty `{"warnings": []}` written by the `tiles` container; no live source yet (`docs/water-warnings.md`) |
 | `/tiles/.*` | 404 | in-progress builds and markers are hidden |
@@ -159,7 +159,7 @@ npm ci && npm run build   # → dist/, serve with deploy/Caddyfile (adjust paths
 ## Verifying a build
 
 ```bash
-npm run tiles:coverage -- path/to/pawpath-YYYYMMDD.pmtiles 52.3508 5.2647
+npm run tiles:coverage -- path/to/pawpath-YYYYMMDD-HHMM.pmtiles 52.3508 5.2647
 ```
 
 prints features per layer and level around a point.

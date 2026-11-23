@@ -59,10 +59,14 @@ export const LAYER_MIN_ZOOM = {
   benches: 13,
   waste: 13,
   drinkingWater: 13,
+  toilets: 13,
 } as const;
 
+/** Toilets mapped with these `access` values are neither drawn nor listed. */
+export const TOILET_HIDDEN_ACCESS = ['private', 'no'] as const;
+
 /**
- * Small JSON written by the tile build: `{ "url": "pawpath-YYYYMMDD.pmtiles", ... }`.
+ * Small JSON written by the tile build: `{ "url": "pawpath-YYYYMMDD-HHMM.pmtiles", ... }`.
  * Served with a short cache lifetime, while the `.pmtiles` it points at is
  * immutable — so a new build never mixes with tiles cached from an old one.
  */
@@ -423,8 +427,16 @@ export const OSM_NOTES_URL: string = ENV['VITE_OSM_NOTES_URL'] ?? 'https://api.o
 export const OSM_NOTE_PAGE = 'https://www.openstreetmap.org/note/{id}';
 /** One note per minute per browser — volunteers read every one. */
 export const NOTE_MIN_INTERVAL_MS = 60_000;
-/** Where the report crosshair sits, as a fraction of the map height (above the sheet). */
-export const REPORT_CROSSHAIR_Y = 0.3;
+/**
+ * Where the report crosshair sits, as a fraction of the map height: the
+ * middle. Step 1 shows only a small bar at the bottom, so nothing covers it,
+ * and "Move the spot" can put it back exactly by centring the map.
+ */
+export const REPORT_CROSSHAIR_Y = 0.5;
+/** Step 2: how far above the middle the marked spot is shown (fraction of the map height), clear of the form. */
+export const REPORT_SPOT_LIFT = 0.3;
+/** Zoom when "Report" starts the cross on the walker's position. */
+export const REPORT_START_ZOOM = 18;
 /** OSM rejects longer note texts. */
 export const NOTE_MAX_LENGTH = 2_000;
 

@@ -4,6 +4,7 @@ nwr/amenity=bench
 nwr/amenity=dog_excrement
 nwr/amenity=dog_waste*
 nwr/amenity=drinking_water
+nwr/amenity=toilets
 nwr/amenity=waste_basket
 nwr/amenity=water_point
 nwr/dog=designated

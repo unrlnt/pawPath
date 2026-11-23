@@ -13,7 +13,7 @@ import type {
   LayerSpecification,
 } from 'maplibre-gl';
 
-import { LAYER_MIN_ZOOM } from '../config';
+import { LAYER_MIN_ZOOM, TOILET_HIDDEN_ACCESS } from '../config';
 import { LAYER_KEYS, type FeatureLevel, type LayerKey } from '../data/layers';
 import { palette, pawRisk, safety } from '../styles/tokens';
 import type { PawBand } from '../lib/conditions/paw';
@@ -288,6 +288,14 @@ function specsFor(key: LayerKey, disabled: readonly FeatureLevel[]): LayerSpecif
       ];
     case 'drinkingWater':
       return [symbolLayer(id('icons'), base, 'drinkingWater', ['all'] as unknown as FilterSpecification)];
+    case 'toilets':
+      // Private toilets are mapped, but of no use to a passer-by.
+      return [
+        symbolLayer(id('icons'), base, 'toilets', [
+          '!',
+          ['in', ['coalesce', ['get', 'access'], ''], ['literal', [...TOILET_HIDDEN_ACCESS]]],
+        ] as unknown as FilterSpecification),
+      ];
   }
 }
 
@@ -300,6 +308,7 @@ const DRAW_ORDER: readonly LayerKey[] = [
   'benches',
   'waste',
   'drinkingWater',
+  'toilets',
 ];
 
 export function pawpathLayerSpecs(

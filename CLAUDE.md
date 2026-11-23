@@ -67,7 +67,7 @@ Weekly build (owner's server, or any build box)
 Owner's server — Coolify, docker-compose.yml     Cloudflare free proxy in front
   web   (Caddy, static only)
     /              the SPA (Vite build, baked into the image)
-    /tiles/        pawpath-YYYYMMDD.pmtiles + manifest.json  ← shared volume
+    /tiles/        pawpath-YYYYMMDD-HHMM.pmtiles + manifest.json  ← shared volume
     /tiles/water-warnings.json   optional (Phase 6) — no source with clear terms yet
   tiles (builder) rebuilds into the shared volume when > 7 days old
 
@@ -188,6 +188,7 @@ exact value in the popup.
 | Benches | `amenity=bench` | Flat |
 | Waste bins | `amenity=waste_basket` (+ `waste=dog_excrement`), `vending=excrement_bags` (any element, no `amenity` required), `amenity~dog_waste.*\|dog_excrement` | Three levels with distinct symbols: general bin, dog bin, bag dispenser |
 | Drinking water | `amenity=drinking_water`, `amenity=water_point` | Flat; note that NL coverage is sparse |
+| Public toilets | `amenity=toilets`; `access=private`/`no` kept in the tiles but never drawn or listed | Flat; off by default. For the walker, not the dog |
 | Seasonal | Derived | Severity ramp: low / moderate / high |
 | You | Geolocation | — |
 
@@ -298,7 +299,7 @@ location's time zone, not the browser's.
 - **Paw-heat recolouring** of surfaces is a MapLibre style expression driven
   by the current paw estimate, not a re-fetch.
 - **Caching** is HTTP caching: long `Cache-Control` on tiles, versioned file
-  name per build (`pawpath-YYYYMMDD.pmtiles`) so a new build never mixes with
+  name per build (`pawpath-YYYYMMDD-HHMM.pmtiles`) so a new build never mixes with
   old cached tiles. Conditions: 1 h in `localStorage`.
 - **Coverage stats** replace the recon page: a script reports features per km²
   per layer for any bbox, read from the built tiles.
@@ -385,7 +386,7 @@ map, geolocation, disclaimer, attribution and ad slot carry over.
 
 ### Phase 2R — Tile pipeline and map rebuild
 - Planetiler profile generated from (or tested against) `layers.ts`; build
-  script `osmium tags-filter` → Planetiler → `pawpath-YYYYMMDD.pmtiles`.
+  script `osmium tags-filter` → Planetiler → `pawpath-YYYYMMDD-HHMM.pmtiles`.
 - Verified first on a small extract (Flevoland), then NL+DE, then planet.
 - MapLibre reads the `.pmtiles` via the `pmtiles` protocol; basemap OpenFreeMap.
 - Layer toggles (visibility only) and the "zoom in to see" hint.
@@ -718,6 +719,55 @@ proxy certificate in a throwaway copy), Flevoland tiles mounted:
 
 ### Decisions log
 
+**Report in two steps (2026-11-23, owner feedback after the first walk)**
+
+- **Problem**: the report sheet covered most of the screen, and "Send note"
+  sent whatever lay under a cross the walker could barely see or move.
+- **Now, step 1 "Where is it?"**: only a small bar (Cancel · Continue) and a
+  cross in the middle of the map (`REPORT_CROSSHAIR_Y` = 0.5). If the walker's
+  position is known, the map starts on it at z18 (`REPORT_START_ZOOM`): you
+  usually stand at the thing you report. Layer chips are hidden while
+  reporting.
+- **Step 2**: the spot is frozen; the map keeps its zoom and shows the same
+  cross 30 % above the middle (`REPORT_SPOT_LIFT`, via `fit.lift` →
+  `easeTo` with an offset), clear of the form. "What is at the marked spot?",
+  the kind chips, comment, Send. "Move the spot" goes back to step 1 with the
+  cross exactly on the chosen spot.
+- Browser (393×852, position known): step 1 bar 121 px; step 2 form 425 px
+  with the cross visible above it at z18; after "Move the spot" and Continue
+  the note's lat/lon equal the point under the cross to 6 decimals (request
+  intercepted, nothing sent). No page errors.
+
+**Public toilets (2026-11-23, owner request)**
+
+- **A new layer `toilets`** (`amenity=toilets`, z13+, off by default like
+  benches): chip "Public toilets", grey badge with a toilet glyph, popup with
+  fee ("Free" / "Costs a fee"), "For customers only", wheelchair, baby
+  changing table and opening hours when mapped.
+- **Private toilets are not shown**: `access=private` / `no`
+  (`TOILET_HIDDEN_ACCESS`) stay in the tiles (the condition language has no
+  "not"), but the style filters them out and Find nearby skips them.
+  `access=customers` is shown, and says so.
+- **Find nearby has "Toilet"**; amenity POIs now carry their `name`.
+  Not added to "Add a stop" or to reporting — not asked.
+- **Needs a tile rebuild**: the schema and osmium filter changed, so the
+  build key changes and the server rebuilds on deploy.
+- Flevoland build (now named `pawpath-20261123-1627.pmtiles`, 6.4 MB):
+  2 public toilets within 2 km of central Almere — sparse, as mapped.
+  Browser: chip on → icon; Find nearby "Toilet — 1.4 km south-east"; popup
+  "Public toilet". `planetiler verify` 38/38. No page errors.
+
+**Tile file names carry the time (2026-11-23)**
+
+- A rebuild on the same day (a deploy that changes the recipe triggers one)
+  used to write the same `pawpath-YYYYMMDD.pmtiles`, which is served
+  `immutable` and cached range by range in the service worker: phones would
+  mix byte ranges of two builds and draw broken tiles. Names are now
+  `pawpath-YYYYMMDD-HHMM.pmtiles`.
+- Found while checking why bathing sites are still missing live: the server
+  still serves the 09:39 build of 2026-11-23 (made with the placeholder, no
+  EEA sites); no rebuild has finished since the bundled copy was deployed.
+
 **Find nearby (2026-11-23)**
 
 - **A 📍 button opens "Find nearby"**: Bin · Dog-waste bin · Bag dispenser ·
@@ -787,10 +837,8 @@ proxy certificate in a throwaway copy), Flevoland tiles mounted:
   "please check on the ground", ≤ 2,000 characters.
 - **Permanent features only**: bench, waste bin, dog-waste bin, poop-bag
   dispenser, drinking-water tap. Never water, off-leash or anything temporary.
-- **Two ways in**: a ⚑ button ("Report something missing") shows a crosshair
-  at 30 % of the map height (`REPORT_CROSSHAIR_Y`) — first placed at the
-  centre, where the sheet covered it — and the map reports the point under
-  it; and "Not there anymore? Report it" in popups of benches, bins and taps,
+- **Two ways in**: a ⚑ button ("Report something missing") — *two steps
+  since the first walk, see "Report in two steps"* — and "Not there anymore? Report it" in popups of benches, bins and taps,
   which links the mapped object.
 - **One note per minute per browser** (`NOTE_MIN_INTERVAL_MS`, localStorage),
   enforced in the source; the sheet says the note is public and anonymous and
@@ -1122,7 +1170,7 @@ stretch goal)**
   selector and fail later; now an unscored surface is not in the tiles (§2.6).
 - **`amenity~dog_waste.*` became `amenity=dog_waste*` (prefix).** The old regex
   was unanchored; Planetiler's `%` wildcard is a prefix match. Same intent.
-- **Versioned tiles + manifest.** The build writes `pawpath-YYYYMMDD.pmtiles`
+- **Versioned tiles + manifest.** The build writes `pawpath-YYYYMMDD-HHMM.pmtiles`
   (immutable) and `manifest.json` (short cache); old files are kept a week.
 - **Deleted:** the Overpass client, retry/breaker/budget, request-shape tests,
   IndexedDB cache, tile grid, proxy seam, recon page, dev panel, Nominatim

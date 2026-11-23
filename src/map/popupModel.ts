@@ -59,6 +59,18 @@ function detailsFor(layer: LayerKey, p: Record<string, unknown>): string[] {
       if (str(p['bottle']) === 'yes') out.push('Bottle refill');
       if (str(p['dog']) === 'yes') out.push('Dog-friendly (bowl or low tap)');
       break;
+    case 'toilets': {
+      const access = str(p['access']);
+      if (access === 'customers') out.push('For customers only');
+      const fee = str(p['fee']);
+      if (fee === 'no') out.push('Free');
+      else if (fee !== undefined && fee !== 'no') out.push(fee === 'yes' ? 'Costs a fee' : `Fee: ${human(fee)}`);
+      if (str(p['wheelchair']) === 'yes') out.push('Wheelchair accessible');
+      if (str(p['changing_table']) === 'yes') out.push('Baby changing table');
+      const hours = str(p['opening_hours']);
+      if (hours !== undefined) out.push(`Open: ${hours}`);
+      break;
+    }
     case 'waste':
       if (str(p['waste'])?.includes('dog_excrement') === true) out.push('Takes dog waste');
       if (str(p['vending']) === 'excrement_bags') out.push('Dispenses poop bags');
@@ -97,6 +109,7 @@ const SINGULAR: Readonly<Record<LayerKey, string>> = {
   benches: 'Bench',
   waste: 'Bin',
   drinkingWater: 'Drinking water',
+  toilets: 'Public toilet',
 };
 
 const NOTES: Partial<Record<FeatureLevel, string>> = {

@@ -122,6 +122,7 @@ export const LAYER_KEYS = [
   'benches',
   'waste',
   'drinkingWater',
+  'toilets',
 ] as const;
 
 export type LayerKey = (typeof LAYER_KEYS)[number];
@@ -363,6 +364,20 @@ export const LAYERS: Readonly<Record<LayerKey, LayerDefinition>> = {
     selectors: [
       { id: 'drinkingWater.drinkingWater', label: 'amenity=drinking_water', geometries: ['centroid'], conditions: [eq('amenity', 'drinking_water')] },
       { id: 'drinkingWater.waterPoint', label: 'amenity=water_point', geometries: ['centroid'], conditions: [eq('amenity', 'water_point')] },
+    ],
+  },
+
+  toilets: {
+    key: 'toilets',
+    label: 'Public toilets',
+    kind: 'amenity',
+    minZoom: LAYER_MIN_ZOOM.toilets,
+    keepTags: ['name', 'access', 'fee', 'wheelchair', 'opening_hours', 'changing_table'],
+    note:
+      'For the walker, not the dog (owner, 2026-11-23). access=private/no are ' +
+      'in the tiles but never drawn or listed (TOILET_HIDDEN_ACCESS).',
+    selectors: [
+      { id: 'toilets.toilets', label: 'amenity=toilets', geometries: ['centroid'], conditions: [eq('amenity', 'toilets')] },
     ],
   },
 };

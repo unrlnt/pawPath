@@ -12,7 +12,13 @@ import { VectorTile } from '@mapbox/vector-tile';
 import { PbfReader as Pbf } from 'pbf';
 import { PMTiles, type Source } from 'pmtiles';
 
-import { ROUTE_MAX_TILES, ROUTE_SHADE_SIDE_REACH_M, ROUTE_TILE_MARGIN_M, ROUTE_TREE_ROW_REACH_M } from '../../config';
+import {
+  ROUTE_MAX_TILES,
+  ROUTE_SHADE_SIDE_REACH_M,
+  ROUTE_TILE_MARGIN_M,
+  ROUTE_TREE_ROW_REACH_M,
+  TOILET_HIDDEN_ACCESS,
+} from '../../config';
 import { buildGraph, gridToLngLat, type GridLine, type Tags, type WalkGraph } from '../../lib/routing/graph';
 import type { Poi, PoiKind } from '../../lib/routing/stops';
 import { makeShadeLookup, type ShadeArea, type ShadeLevel, type ShadeLine } from '../../lib/routing/shade';
@@ -34,10 +40,11 @@ export interface DecodedTile {
 function poiKind(layer: string, level: unknown): PoiKind | undefined {
   if (layer === 'benches') return 'bench';
   if (layer === 'drinkingWater') return 'water';
+  if (layer === 'toilets') return 'toilet';
   if (layer === 'waste') return level === 'dog_bin' ? 'dogBin' : level === 'bag_dispenser' ? 'bagDispenser' : 'bin';
   return undefined;
 }
-const POI_LAYERS = ['benches', 'waste', 'drinkingWater'] as const;
+const POI_LAYERS = ['benches', 'waste', 'drinkingWater', 'toilets'] as const;
 
 const EMPTY_TILE: DecodedTile = { lines: [], shadeAreas: [], shadeLines: [], pois: [], extent: 4096 };
 
@@ -94,9 +101,15 @@ export function decodeRoutingTile(bytes: Uint8Array, x: number, y: number): Deco
       const kind = poiKind(name, feature.properties['level']);
       const p = feature.loadGeometry()[0]?.[0];
       if (kind === undefined || p === undefined) continue;
+      if (kind === 'toilet' && (TOILET_HIDDEN_ACCESS as readonly unknown[]).includes(feature.properties['access'])) continue;
       // Points outside the tile proper are the neighbour's (tile buffer).
       if (p.x < 0 || p.y < 0 || p.x >= layer.extent || p.y >= layer.extent) continue;
-      pois.push({ kind, at: gridToLngLat(x * layer.extent + p.x, y * layer.extent + p.y, WALK_GRAPH_ZOOM, layer.extent) });
+      const poiName = feature.properties['name'];
+      pois.push({
+        kind,
+        at: gridToLngLat(x * layer.extent + p.x, y * layer.extent + p.y, WALK_GRAPH_ZOOM, layer.extent),
+        ...(typeof poiName === 'string' && poiName !== '' ? { name: poiName } : {}),
+      });
     }
   }
   // Off-leash places for "Find nearby": only off-leash areas and dog parks —

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds pawpath-YYYYMMDD.pmtiles from one or more OSM extracts.
+# Builds pawpath-YYYYMMDD-HHMM.pmtiles from one or more OSM extracts.
 #
 #   tools/tiles/build.sh OUT_DIR SOURCE [SOURCE ...]
 #
@@ -30,7 +30,9 @@ WORK_DIR=${WORK_DIR:-"$TILES_DIR/../../.tiles-work"}
 PLANETILER_VERSION=${PLANETILER_VERSION:-0.10.2}
 PLANETILER_JAR=${PLANETILER_JAR:-"$WORK_DIR/planetiler-$PLANETILER_VERSION.jar"}
 JAVA_XMX=${JAVA_XMX:-4g}
-STAMP=$(date -u +%Y%m%d)
+# Date AND time: the file is served as immutable, so a second build on the
+# same day must never reuse a name browsers (and the offline cache) hold.
+STAMP=$(date -u +%Y%m%d-%H%M)
 OUT_NAME="pawpath-$STAMP.pmtiles"
 
 mkdir -p "$WORK_DIR/filtered" "$OUT_DIR"
