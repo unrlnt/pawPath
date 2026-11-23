@@ -62,7 +62,7 @@ export const LAYER_MIN_ZOOM = {
 } as const;
 
 /**
- * Small JSON written by the tile build: `{ "url": "pawpath-YYYYMMDD.pmtiles", ... }`.
+ * Small JSON written by the tile build: `{ "url": "pawpath-YYYYMMDD-HHMM.pmtiles", ... }`.
  * Served with a short cache lifetime, while the `.pmtiles` it points at is
  * immutable — so a new build never mixes with tiles cached from an old one.
  */

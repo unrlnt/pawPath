@@ -67,7 +67,7 @@ Weekly build (owner's server, or any build box)
 Owner's server — Coolify, docker-compose.yml     Cloudflare free proxy in front
   web   (Caddy, static only)
     /              the SPA (Vite build, baked into the image)
-    /tiles/        pawpath-YYYYMMDD.pmtiles + manifest.json  ← shared volume
+    /tiles/        pawpath-YYYYMMDD-HHMM.pmtiles + manifest.json  ← shared volume
     /tiles/water-warnings.json   optional (Phase 6) — no source with clear terms yet
   tiles (builder) rebuilds into the shared volume when > 7 days old
 
@@ -298,7 +298,7 @@ location's time zone, not the browser's.
 - **Paw-heat recolouring** of surfaces is a MapLibre style expression driven
   by the current paw estimate, not a re-fetch.
 - **Caching** is HTTP caching: long `Cache-Control` on tiles, versioned file
-  name per build (`pawpath-YYYYMMDD.pmtiles`) so a new build never mixes with
+  name per build (`pawpath-YYYYMMDD-HHMM.pmtiles`) so a new build never mixes with
   old cached tiles. Conditions: 1 h in `localStorage`.
 - **Coverage stats** replace the recon page: a script reports features per km²
   per layer for any bbox, read from the built tiles.
@@ -385,7 +385,7 @@ map, geolocation, disclaimer, attribution and ad slot carry over.
 
 ### Phase 2R — Tile pipeline and map rebuild
 - Planetiler profile generated from (or tested against) `layers.ts`; build
-  script `osmium tags-filter` → Planetiler → `pawpath-YYYYMMDD.pmtiles`.
+  script `osmium tags-filter` → Planetiler → `pawpath-YYYYMMDD-HHMM.pmtiles`.
 - Verified first on a small extract (Flevoland), then NL+DE, then planet.
 - MapLibre reads the `.pmtiles` via the `pmtiles` protocol; basemap OpenFreeMap.
 - Layer toggles (visibility only) and the "zoom in to see" hint.
@@ -717,6 +717,17 @@ proxy certificate in a throwaway copy), Flevoland tiles mounted:
   previous `tiles` image instead. Nothing else in that image changed.
 
 ### Decisions log
+
+**Tile file names carry the time (2026-11-23)**
+
+- A rebuild on the same day (a deploy that changes the recipe triggers one)
+  used to write the same `pawpath-YYYYMMDD.pmtiles`, which is served
+  `immutable` and cached range by range in the service worker: phones would
+  mix byte ranges of two builds and draw broken tiles. Names are now
+  `pawpath-YYYYMMDD-HHMM.pmtiles`.
+- Found while checking why bathing sites are still missing live: the server
+  still serves the 09:39 build of 2026-11-23 (made with the placeholder, no
+  EEA sites); no rebuild has finished since the bundled copy was deployed.
 
 **Find nearby (2026-11-23)**
 
@@ -1122,7 +1133,7 @@ stretch goal)**
   selector and fail later; now an unscored surface is not in the tiles (§2.6).
 - **`amenity~dog_waste.*` became `amenity=dog_waste*` (prefix).** The old regex
   was unanchored; Planetiler's `%` wildcard is a prefix match. Same intent.
-- **Versioned tiles + manifest.** The build writes `pawpath-YYYYMMDD.pmtiles`
+- **Versioned tiles + manifest.** The build writes `pawpath-YYYYMMDD-HHMM.pmtiles`
   (immutable) and `manifest.json` (short cache); old files are kept a week.
 - **Deleted:** the Overpass client, retry/breaker/budget, request-shape tests,
   IndexedDB cache, tile grid, proxy seam, recon page, dev panel, Nominatim
