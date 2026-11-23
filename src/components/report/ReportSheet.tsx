@@ -27,14 +27,54 @@ type SendState =
   | { readonly s: 'sent'; readonly url: string; readonly id: number }
   | { readonly s: 'failed'; readonly message: string };
 
+/**
+ * Step 1 of reporting something missing: the map moves under a fixed cross;
+ * only Cancel and Continue are shown, so the map stays visible.
+ */
+export function ReportPlaceBar({
+  canContinue,
+  onCancel,
+  onContinue,
+}: {
+  canContinue: boolean;
+  onCancel: () => void;
+  onContinue: () => void;
+}) {
+  return (
+    <section
+      aria-label="Report to OpenStreetMap"
+      className="pointer-events-auto mx-2 rounded-blob bg-cream/95 p-3 shadow-soft ring-1 ring-creamDeep"
+    >
+      <h2 className="font-display text-lg font-semibold leading-tight text-ink">Where is it?</h2>
+      <p className="mt-0.5 text-sm text-inkSoft">Move the map until the cross sits on the spot.</p>
+      <div className="mt-2 flex gap-2">
+        <button type="button" className={`${chip} bg-cream text-ink`} onClick={onCancel}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          disabled={!canContinue}
+          onClick={onContinue}
+          className="min-h-[44px] flex-1 rounded-full bg-terracotta px-4 font-display text-lg text-cream shadow-soft active:bg-terracottaDeep disabled:opacity-50"
+        >
+          Continue
+        </button>
+      </div>
+    </section>
+  );
+}
+
 export default function ReportSheet({
   target,
   where,
+  onMoveSpot,
   onClose,
 }: {
   target: ReportTarget;
-  /** For `missing`: the map centre, where the crosshair is. */
+  /** For `missing`: the spot chosen in step 1. */
   where: { lat: number; lng: number } | undefined;
+  /** For `missing`: back to step 1 to move the spot. */
+  onMoveSpot?: () => void;
   onClose: () => void;
 }) {
   const [kind, setKind] = useState<ReportKind | undefined>(target.change === 'gone' ? target.kind : undefined);
@@ -83,10 +123,15 @@ export default function ReportSheet({
         <>
           {target.change === 'missing' ? (
             <>
-              <p className="mt-1 text-sm text-inkSoft">
-                Move the map until the cross sits on the spot, then pick what is there.
-              </p>
-              <div className="mt-2 flex flex-wrap gap-2">
+              <div className="flex items-center justify-between gap-2 text-sm text-inkSoft">
+                <span>What is at the marked spot?</span>
+                {onMoveSpot !== undefined ? (
+                  <button type="button" className="min-h-[44px] shrink-0 px-1 font-bold text-ink underline" onClick={onMoveSpot}>
+                    Move the spot
+                  </button>
+                ) : null}
+              </div>
+              <div className="mt-1 flex flex-wrap gap-2">
                 {REPORT_KIND_KEYS.map((k) => (
                   <button
                     key={k}

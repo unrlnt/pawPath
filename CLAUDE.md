@@ -719,6 +719,25 @@ proxy certificate in a throwaway copy), Flevoland tiles mounted:
 
 ### Decisions log
 
+**Report in two steps (2026-11-23, owner feedback after the first walk)**
+
+- **Problem**: the report sheet covered most of the screen, and "Send note"
+  sent whatever lay under a cross the walker could barely see or move.
+- **Now, step 1 "Where is it?"**: only a small bar (Cancel · Continue) and a
+  cross in the middle of the map (`REPORT_CROSSHAIR_Y` = 0.5). If the walker's
+  position is known, the map starts on it at z18 (`REPORT_START_ZOOM`): you
+  usually stand at the thing you report. Layer chips are hidden while
+  reporting.
+- **Step 2**: the spot is frozen; the map keeps its zoom and shows the same
+  cross 30 % above the middle (`REPORT_SPOT_LIFT`, via `fit.lift` →
+  `easeTo` with an offset), clear of the form. "What is at the marked spot?",
+  the kind chips, comment, Send. "Move the spot" goes back to step 1 with the
+  cross exactly on the chosen spot.
+- Browser (393×852, position known): step 1 bar 121 px; step 2 form 425 px
+  with the cross visible above it at z18; after "Move the spot" and Continue
+  the note's lat/lon equal the point under the cross to 6 decimals (request
+  intercepted, nothing sent). No page errors.
+
 **Public toilets (2026-11-23, owner request)**
 
 - **A new layer `toilets`** (`amenity=toilets`, z13+, off by default like
@@ -818,10 +837,8 @@ proxy certificate in a throwaway copy), Flevoland tiles mounted:
   "please check on the ground", ≤ 2,000 characters.
 - **Permanent features only**: bench, waste bin, dog-waste bin, poop-bag
   dispenser, drinking-water tap. Never water, off-leash or anything temporary.
-- **Two ways in**: a ⚑ button ("Report something missing") shows a crosshair
-  at 30 % of the map height (`REPORT_CROSSHAIR_Y`) — first placed at the
-  centre, where the sheet covered it — and the map reports the point under
-  it; and "Not there anymore? Report it" in popups of benches, bins and taps,
+- **Two ways in**: a ⚑ button ("Report something missing") — *two steps
+  since the first walk, see "Report in two steps"* — and "Not there anymore? Report it" in popups of benches, bins and taps,
   which links the mapped object.
 - **One note per minute per browser** (`NOTE_MIN_INTERVAL_MS`, localStorage),
   enforced in the source; the sheet says the note is public and anonymous and
