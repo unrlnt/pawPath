@@ -32,13 +32,15 @@ export interface GeolocationState {
   readonly message: string;
 }
 
-const MESSAGES: Record<GeolocationStatus, string> = {
+const MESSAGES: Record<GeolocationStatus | 'insecure', string> = {
   idle: '',
   prompting: 'Asking your browser for your location…',
   granted: '',
   denied: 'Location access is blocked. Search for a place instead, or allow it in your browser settings.',
   unavailable:
     'This browser cannot share a location here. Location needs a secure (https) page. Search for a place instead.',
+  insecure:
+    'Your location only works on a secure (https) page. This one is plain http, so the browser refuses without asking. Search for a place instead.',
   timeout: 'Could not get a fix in time. Try again, or search for a place.',
   positionUnavailable: 'Your device could not determine a position. Try again, or search for a place.',
 };
@@ -61,6 +63,12 @@ export function useGeolocation(): GeolocationState & { request: () => void } {
   const request = useCallback(() => {
     // `navigator.geolocation` is absent entirely on insecure origins in some
     // browsers, and present-but-always-failing in others.
+    // On plain http (e.g. a test domain before TLS is set up) browsers refuse
+    // location without ever asking. Say so, instead of "blocked by you".
+    if (typeof window !== 'undefined' && window.isSecureContext === false) {
+      setState({ status: 'unavailable', position: undefined, message: MESSAGES.insecure });
+      return;
+    }
     if (typeof navigator === 'undefined' || navigator.geolocation === undefined) {
       setState({ status: 'unavailable', position: undefined, message: MESSAGES.unavailable });
       return;

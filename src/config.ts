@@ -311,11 +311,17 @@ export const GEOLOCATION_MAX_AGE_MS = 60_000;
 
 /**
  * Photon place search (CLAUDE.md §5). Public instance is fair-use: searches run
- * on submit only, at most one per `PHOTON_MIN_INTERVAL_MS`, never per keystroke.
+ * as suggestions while typing (owner, 2026-11-23): after `PHOTON_MIN_QUERY_LENGTH`
+ * letters and a `PHOTON_DEBOUNCE_MS` pause, stale requests aborted, recent
+ * queries cached, and at most one request per `PHOTON_MIN_INTERVAL_MS`.
  */
 export const PHOTON_URL: string = ENV['VITE_PHOTON_URL'] ?? 'https://photon.komoot.io/api/';
 export const PHOTON_MIN_QUERY_LENGTH = 3;
-export const PHOTON_MIN_INTERVAL_MS = 1_000;
+export const PHOTON_MIN_INTERVAL_MS = 300;
+/** Pause after the last keystroke before suggestions are fetched. */
+export const PHOTON_DEBOUNCE_MS = 350;
+/** Recent queries answered from memory (typing back and forth costs nothing). */
+export const PHOTON_CACHE_SIZE = 50;
 export const PHOTON_RESULT_LIMIT = 5;
 export const PHOTON_TIMEOUT_MS = 10_000;
 

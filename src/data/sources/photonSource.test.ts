@@ -30,3 +30,10 @@ describe('photonLabel', () => {
     );
   });
 });
+
+describe('duplicate suggestions', () => {
+  it('keeps one entry per label', () => {
+    const f = (lng: number) => ({ geometry: { coordinates: [lng, 52.3] }, properties: { name: 'Almere-Haven', city: 'Almere' } });
+    expect(parsePhotonResponse({ features: [f(5.2), f(5.21)] })).toHaveLength(1);
+  });
+});
