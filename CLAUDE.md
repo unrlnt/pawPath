@@ -156,8 +156,10 @@ Staying inside the limits:
   and cached for `CONDITIONS_TTL_MS` (1 h) in `localStorage`: one visitor
   costs a handful of calls per day. **Commercial use** (an enabled ad slot)
   requires Open-Meteo's paid plan or self-hosting it — a Phase 7 blocker.
-- **Photon**: search runs on submit (or debounced, minimum 3 characters,
-  ≥ 1 s apart), never per keystroke. Self-host when traffic warrants.
+- **Photon**: suggestions while typing (owner, 2026-11-23), debounced:
+  minimum 3 characters, 350 ms after the last keystroke, a newer keystroke
+  aborts the older request, recent queries cached in memory, and at most one
+  request per 300 ms. Self-host when traffic warrants.
 - **Nominatim is not used** for search: its policy forbids client-side
   autocomplete.
 
@@ -723,6 +725,18 @@ proxy certificate in a throwaway copy), Flevoland tiles mounted:
   `planetiler verify` 37/37 incl. a placeholder example. Why the EEA request
   failed on the server is not known yet — look for `[bathing …] WARNING` in
   the `tiles` log.
+
+- **Third attempt built.** Owner on a plain-http test domain: "can't see
+  the map", location "forbidden" without a prompt, search does nothing.
+  Reproduced over http on a non-localhost name: location is refused by the
+  browser on any insecure origin (`Only secure origins are allowed`), and our
+  message wrongly blamed a browser setting — now it says https is needed.
+  Search only ran on Enter / Go; owner wants suggestions while typing like
+  any maps app → live suggestions (see §5), Enter takes the top one,
+  duplicate labels dropped. `AbortSignal.any`/`timeout` replaced (Safari
+  < 17.4 lacks them and every search would fail there). The map itself
+  rendered fine over http here (basemap and our tiles) — the owner's blank
+  map is still to be diagnosed on the real host.
 
 **Phase 7 — launch preparation (2026-11-22)**
 
