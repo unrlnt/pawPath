@@ -6,8 +6,23 @@
  * `import.meta.env` does not exist — read env vars through `ENV` only.
  */
 
-const ENV: Readonly<Record<string, string | undefined>> =
-  (import.meta as { env?: Record<string, string | undefined> }).env ?? {};
+/**
+ * Env vars with empty values dropped. docker-compose passes unset build args
+ * as EMPTY strings (`${VITE_X:-}`), and `'' ?? default` keeps the ''. On the
+ * first live deploy that gave the map an empty style URL (no basemap) and
+ * search an empty Photon URL (every search threw). Empty means unset.
+ */
+export function nonEmptyEnv(raw: Readonly<Record<string, unknown>>): Readonly<Record<string, string>> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === 'string' && value.trim() !== '') out[key] = value.trim();
+  }
+  return out;
+}
+
+const ENV: Readonly<Record<string, string | undefined>> = nonEmptyEnv(
+  (import.meta as { env?: Record<string, unknown> }).env ?? {},
+);
 
 /* ------------------------------------------------------------------ *
  * Identity

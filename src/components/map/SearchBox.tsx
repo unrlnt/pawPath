@@ -100,10 +100,11 @@ export default function SearchBox({
           onChange={(event) => setQuery(event.target.value)}
         />
         {status === 'searching' ? (
-          <span
-            aria-hidden
-            className="absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin rounded-full border-2 border-sageDeep border-t-transparent"
-          />
+          // Centring and spinning on separate elements: both use `transform`,
+          // and on one element the spin overwrote the centring (it bounced).
+          <span aria-hidden className="absolute right-4 top-1/2 -translate-y-1/2">
+            <span className="block h-4 w-4 animate-spin rounded-full border-2 border-sageDeep border-t-transparent" />
+          </span>
         ) : null}
       </div>
 
