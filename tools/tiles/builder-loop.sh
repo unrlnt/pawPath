@@ -15,6 +15,8 @@
 #   WORK_DIR            temporary space, ~50 GB for the planet (default: /work)
 #   REBUILD_AFTER_DAYS  default 7
 #   CHECK_INTERVAL      sleep(1) duration between checks (default: 6h)
+#   RETRY_EMPTY         retry delay after a failed build while no tiles exist
+#                       yet (default: 30m) — a fresh server should not wait 6 h
 #   JAVA_XMX            Planetiler heap (default: 4g)
 set -uo pipefail
 
@@ -24,6 +26,7 @@ OUT_DIR=${OUT_DIR:-/srv/tiles}
 export WORK_DIR=${WORK_DIR:-/work}
 REBUILD_AFTER_DAYS=${REBUILD_AFTER_DAYS:-7}
 CHECK_INTERVAL=${CHECK_INTERVAL:-6h}
+RETRY_EMPTY=${RETRY_EMPTY:-30m}
 log() { printf '[builder %s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 
 # Resolve TILE_REGIONS to a list of extract URLs, once, at start-up.
@@ -59,14 +62,18 @@ fi
 
 log "watching $OUT_DIR (regions: $TILE_REGIONS → ${#SOURCES[@]} extract(s), rebuild after ${REBUILD_AFTER_DAYS}d)"
 while true; do
+  wait_for=$CHECK_INTERVAL
   if needs_build; then
     log "starting build"
     if "$TILES_DIR/build.sh" "$OUT_DIR" "${SOURCES[@]}"; then
       echo "$TILE_REGIONS" > "$OUT_DIR/.regions"
       log "build finished"
-    else
+    elif [[ -f "$OUT_DIR/manifest.json" ]]; then
       log "build FAILED — keeping the previous tiles, retrying after $CHECK_INTERVAL"
+    else
+      wait_for=$RETRY_EMPTY
+      log "build FAILED — no tiles yet, retrying after $RETRY_EMPTY"
     fi
   fi
-  sleep "$CHECK_INTERVAL"
+  sleep "$wait_for"
 done

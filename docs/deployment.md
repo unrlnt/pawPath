@@ -80,7 +80,15 @@ the previous copy in `tiles-work` is reused; the build never fails over it.
 Coolify → `tiles` service → Logs. A build logs `[tiles …] downloading`,
 `filtering`, `building`, `done`. A failed build logs
 `build FAILED — keeping the previous tiles` and retries at the next check
-(every 6 h); the site keeps serving the last good build meanwhile.
+(every 6 h); the site keeps serving the last good build meanwhile. While no
+tiles exist yet (a fresh server), a failed build is retried after 30 minutes
+(`RETRY_EMPTY`).
+
+**Download mirrors.** Every Geofabrik extract is also tried on
+`download.openstreetmap.fr/extracts/<same region path>` when Geofabrik fails
+(`failed: …` then `downloading https://download.openstreetmap.fr/…` in the
+log). On the first real deploy Geofabrik answered 404 for the whole-Netherlands
+file; the mirror has it. `MIRROR_EXTRACTS` overrides the mirror base URL.
 
 ## Plain Docker Compose
 
