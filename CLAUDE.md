@@ -107,9 +107,9 @@ Accepted deliberately; do not "fix" these without discussion:
 - Tags not in the profile are not in the tiles. Adding a layer means a rebuild.
 - **The routing layer (Phase 9) is most of the size.** Flevoland: filtered
   extract 11 MB of 39 MB, tiles 6.7 MB (4.2 MB without `walk`). Scaled by
-  extract size, rough estimates only: NL+DE tiles ~1–2 GB, planet ~10–15 GB
-  permanent, and the planet filter step needs ~20 GB more temporary space on
-  top of the largest download. Measure on the first real NL+DE build.
+  extract size: planet ~10–15 GB permanent (estimate), and the planet filter
+  step needs ~20 GB more temporary space on top of the largest download.
+  **Measured: the first real NL+DE build (2026-11-23) is 1.31 GB.**
 
 ## 4. Stack
 
@@ -737,6 +737,22 @@ proxy certificate in a throwaway copy), Flevoland tiles mounted:
   < 17.4 lacks them and every search would fail there). The map itself
   rendered fine over http here (basemap and our tiles) — the owner's blank
   map is still to be diagnosed on the real host.
+
+- **Live on https, but no basemap and search stuck.** Debugged against the
+  live site (host allowed in the sandbox's environment): server, headers,
+  manifest and range requests all fine (1.31 GB NL+DE, 206 through
+  Cloudflare). The page threw `Failed to construct 'URL': Invalid URL`:
+  **docker-compose passes unset build args as empty strings**
+  (`${VITE_PHOTON_URL:-}`), and `'' ?? default` keeps the empty string — so
+  the map got an empty style URL and search an empty Photon URL. Local builds
+  never had the variables at all, so no test saw it. Fix: `nonEmptyEnv()` in
+  `config.ts` drops empty values (tested); verified by building with both set
+  to `''`. Also: the search spinner bounced instead of spinning (`animate-spin`
+  overwrote the centring transform) — split into two elements.
+- **Cloudflare injects its Web Analytics beacon** into the page; our CSP
+  blocks it (`script-src 'self'`). Left blocked on purpose — the app promises
+  "nothing tracked". The owner can switch Web Analytics / RUM off for the
+  zone to stop the console error.
 
 **Phase 7 — launch preparation (2026-11-22)**
 
