@@ -758,6 +758,14 @@ proxy certificate in a throwaway copy), Flevoland tiles mounted:
   `config.ts` drops empty values (tested); verified by building with both set
   to `''`. Also: the search spinner bounced instead of spinning (`animate-spin`
   overwrote the centring transform) — split into two elements.
+- **No bathing sites live: the EEA service is intermittent.** It answered at
+  08:16 on 2026-11-23 and reset every connection three hours later (from
+  the sandbox too), so the server's build used the placeholder. Fix: a
+  **bundled copy** in `tools/tiles/data/bathing-waters.geojson.gz` (21,973
+  sites, 2022 season, 858 KB, no personal data — scanned), used when the
+  live fetch fails and no earlier download holds real sites; curl now also
+  retries dropped connections. Refresh the bundle by hand from a good fetch
+  when the EEA publishes a new season.
 - **Cloudflare injects its Web Analytics beacon** into the page; our CSP
   blocks it (`script-src 'self'`). Left blocked on purpose — the app promises
   "nothing tracked". The owner can switch Web Analytics / RUM off for the

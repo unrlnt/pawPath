@@ -72,8 +72,17 @@ the `tiles` volume.
 ### Bathing sites
 
 Each tile build also downloads the official EU bathing sites from the EEA
-(`water.discomap.eea.europa.eu`, a few seconds, ~11 MB). If the EEA is down,
-the previous copy in `tiles-work` is reused; the build never fails over it.
+(`water.discomap.eea.europa.eu`, a few seconds, ~11 MB). The service is
+intermittent; when it fails, the build uses the previous download in
+`tiles-work`, else the copy bundled in the repo
+(`tools/tiles/data/bathing-waters.geojson.gz`), and never fails over it.
+
+### When the builder rebuilds
+
+On first start, when the tiles are older than `REBUILD_AFTER_DAYS`, and when
+the build recipe changed since the last build: `TILE_REGIONS`, the schema, the
+osmium filter or the bundled data. So a deploy that changes any of these
+rebuilds right away; an app-only deploy does not.
 
 ### Watching the builder
 
