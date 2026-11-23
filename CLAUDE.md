@@ -531,7 +531,7 @@ Constraints that keep this compatible with §2:
       superseded by Phase 2R.)*
 - [x] Phase 2R — Tile pipeline and map rebuild *(done 2026-11-21: verified
       on a Flevoland build — features render around Almere at z14 from our own
-      tiles. NL+DE and planet builds still to run, on the owner's server.)*
+      tiles. NL+DE built on the owner's server 2026-11-23; planet not yet.)*
 - [x] Phase 3 — Conditions engine *(done 2026-11-21: Open-Meteo forecast + air
       quality, paw model, walk and rain windows, seasonal advisories,
       collapsible card; verified in a headless browser at Almere with live data)*
@@ -544,11 +544,13 @@ Constraints that keep this compatible with §2:
 - [x] Phase 6 — Water warnings *(done 2026-11-22 for what exists: 21,973
       official EU bathing sites in the tiles, three-state rendering, optional
       warnings file. **No live warnings source** is usable yet — see below.)*
-- [~] Phase 7 — Public launch *(code done 2026-11-22: error/offline/first-build
-      states, attribution always visible, security headers, cacheable chunks,
-      metadata, NL+DE default, Coolify guide; production image tested here.
-      Public repo `unrlnt/pawPath` created with clean history only.
-      **Owner steps left:** merge the PR to `main`, deploy on Coolify.)*
+- [x] Phase 7 — Public launch *(done 2026-11-23: live at
+      https://pawpath.unrulent.com — Coolify from `unrlnt/pawPath` `main`,
+      Cloudflare in front, NL+DE tiles (1.31 GB). Basemap, our layers, search
+      suggestions and conditions confirmed by the owner on a phone. Four
+      deploy fixes on the way: Geofabrik 404 → mirror fallback, empty-EEA
+      crash → placeholder, http location message, empty build args → defaults.
+      See "First deploy" below.)*
 - [ ] Phase 8 — Regional enrichment (post-launch)
 - [x] Phase 9 — Route planner *(done 2026-11-22, pulled forward before
       Phase 7: in-browser A* on the `walk` tile layer, dog- and heat-aware;
@@ -702,6 +704,13 @@ proxy certificate in a throwaway copy), Flevoland tiles mounted:
 ### Decisions log
 
 **First deploy (2026-11-23)**
+
+- **Launched.** Owner confirmed on the live site: map, our layers, search
+  suggestions. Benches and bins appeared once their chips were switched on;
+  live tiles checked per city (one z14 tile each): Almere 185 benches / 19
+  bins, Amsterdam 305 / 80, Utrecht 299 / 398, Berlin 405 / 253, Köln 320 /
+  409 + 12 bag dispensers. **Owner decision: benches and bins stay off by
+  default** (§8 default set unchanged: shade, off-leash, water).
 
 - **Coolify deploy worked (1.5 min), the first tile build did not**:
   `download.geofabrik.de/europe/netherlands-latest.osm.pbf` → 404, so the
