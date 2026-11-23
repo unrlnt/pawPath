@@ -129,7 +129,11 @@ export default function MapPage() {
   const planner = useRoutePlanner(tilesUrl, currentHour);
   const [walking, setWalking] = useState(false);
   const [savedOpen, setSavedOpen] = useState(false);
-  const [fit, setFit] = useState<{ key: number; bounds: [LngLat, LngLat]; lift?: number } | undefined>(undefined);
+  const [fit, setFit] = useState<{ key: number; bounds: [LngLat, LngLat]; lift?: number; zoom?: number } | undefined>(
+    undefined,
+  );
+  /** "Follow me": after ◎ the map keeps the walker centred until they move it. */
+  const [following, setFollowing] = useState(false);
   const watch = useWatchPosition(walking && planner.active);
   const ready = planner.status.kind === 'ready' ? planner.status.result : undefined;
   const progress = useMemo(
@@ -243,14 +247,30 @@ export default function MapPage() {
     });
   }, []);
 
+  // Always a camera move (a new `fit` key), even when the position has not
+  // changed since the last tap — the old `setCentre` with equal values did
+  // nothing, so ◎ seemed broken after panning away.
+  const centreOnMe = useCallback((p: { lat: number; lng: number }, zoomTo?: number) => {
+    const at: LngLat = [p.lng, p.lat];
+    setFit((f) => ({ key: (f?.key ?? 0) + 1, bounds: [at, at], lift: 0, ...(zoomTo === undefined ? {} : { zoom: zoomTo }) }));
+  }, []);
   const recentre = useCallback(() => {
-    if (geolocation.position !== undefined) {
-      setCentre({ lat: geolocation.position.lat, lng: geolocation.position.lng });
-      setZoom(MAP_DEFAULT_ZOOM);
-      return;
-    }
+    // Ask again in any case: restarts the watch if it was refused or lost.
     geolocation.request();
-  }, [geolocation]);
+    setFollowing(true);
+    if (geolocation.position !== undefined) {
+      centreOnMe(geolocation.position, Math.max(viewport?.zoom ?? MAP_DEFAULT_ZOOM, MAP_DEFAULT_ZOOM));
+    }
+  }, [geolocation, centreOnMe, viewport?.zoom]);
+
+  // Follow the walker while "follow me" is on and nothing else needs the map
+  // to hold still (reporting, find nearby, planning — walk mode follows itself).
+  const followBlocked = report !== undefined || nearbyOpen || planner.active;
+  useEffect(() => {
+    if (!following || followBlocked || geolocation.position === undefined) return;
+    centreOnMe(geolocation.position);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [following, followBlocked, geolocation.position?.lat, geolocation.position?.lng]);
 
   const waiting = viewport === undefined ? [] : layersAwaitingZoom(enabled, viewport.zoom);
 
@@ -275,6 +295,7 @@ export default function MapPage() {
           crosshair={crosshair}
           highlight={highlight}
           onCrosshairMove={setCrosshairAt}
+          onUserPan={() => setFollowing(false)}
           onReportGone={(gone) => {
             planner.stop();
             setReport({ change: 'gone', ...gone });
@@ -323,8 +344,11 @@ export default function MapPage() {
             >
               {searchOpen ? '✕' : '🔍'}
             </ControlButton>
-            <ControlButton label="Recentre on me" onClick={recentre}>
-              ◎
+            <ControlButton
+              label={following && !followBlocked ? 'Following you — tap to recentre' : 'Recentre on me'}
+              onClick={recentre}
+            >
+              <span className={following && !followBlocked ? 'text-terracotta' : undefined}>◎</span>
             </ControlButton>
             {!planner.active && report === undefined && !nearbyOpen ? (
               <ControlButton label="Find nearby" onClick={() => setNearbyOpen(true)}>

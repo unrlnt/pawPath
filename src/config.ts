@@ -326,7 +326,8 @@ export const MAP_FALLBACK_CENTRE = { lat: 52.3508, lng: 5.2647, label: 'Almere, 
  * ------------------------------------------------------------------ */
 
 export const GEOLOCATION_TIMEOUT_MS = 10_000;
-export const GEOLOCATION_MAX_AGE_MS = 60_000;
+/** A live position may be at most this old: fresh enough to follow a walker. */
+export const GEOLOCATION_WATCH_MAX_AGE_MS = 5_000;
 
 /**
  * Photon place search (CLAUDE.md §5). Public instance is fair-use: searches run

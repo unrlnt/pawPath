@@ -115,7 +115,11 @@ export interface MapViewProps {
    * first corner that fraction of the map height above the middle (so a
    * point stays visible above a bottom sheet).
    */
-  readonly fit: { readonly key: number; readonly bounds: [LngLat, LngLat]; readonly lift?: number } | undefined;
+  readonly fit:
+    | { readonly key: number; readonly bounds: [LngLat, LngLat]; readonly lift?: number; readonly zoom?: number }
+    | undefined;
+  /** The walker moved the map by hand (drag, pinch, wheel) — ends "follow me". */
+  readonly onUserPan?: () => void;
   /**
    * Height of the attribution line in px, so floating controls can sit above
    * it: attribution must stay visible (licence requirement, CLAUDE.md §10).
@@ -239,6 +243,7 @@ export default function MapView({
   onAttributionHeight,
   onMapError,
   onReportGone,
+  onUserPan,
   crosshair,
   onCrosshairMove,
   highlight,
@@ -247,8 +252,8 @@ export default function MapView({
   const mapRef = useRef<MapLibreMap | null>(null);
   const styleReady = useRef(false);
   // Latest props for handlers registered once.
-  const latest = useRef({ tilesUrl, enabledLayers, disabledLevels, paws, warnings, userPosition, onViewportChange, onDropPin, route, onReportGone });
-  latest.current = { tilesUrl, enabledLayers, disabledLevels, paws, warnings, userPosition, onViewportChange, onDropPin, route, onReportGone };
+  const latest = useRef({ tilesUrl, enabledLayers, disabledLevels, paws, warnings, userPosition, onViewportChange, onDropPin, route, onReportGone, onUserPan });
+  latest.current = { tilesUrl, enabledLayers, disabledLevels, paws, warnings, userPosition, onViewportChange, onDropPin, route, onReportGone, onUserPan };
   const markers = useRef<maplibregl.Marker[]>([]);
 
   /** Adds our source and layers if the style is ready and the URL known. Idempotent. */
@@ -652,7 +657,11 @@ export default function MapView({
     });
     map.on('touchend', clearLongPress);
     map.on('touchmove', clearLongPress);
-    map.on('movestart', clearLongPress);
+    map.on('movestart', (event: { originalEvent?: unknown }) => {
+      clearLongPress();
+      // Only a move with an input event behind it is the walker's own.
+      if (event.originalEvent !== undefined) latest.current.onUserPan?.();
+    });
 
     return () => {
       observer?.disconnect();
@@ -728,7 +737,12 @@ export default function MapView({
     if (fit === undefined) return;
     const map = mapRef.current;
     if (fit.lift !== undefined && map !== null) {
-      map.easeTo({ center: fit.bounds[0] as [number, number], offset: [0, -map.getCanvas().clientHeight * fit.lift], duration: 400 });
+      map.easeTo({
+        center: fit.bounds[0] as [number, number],
+        offset: [0, -map.getCanvas().clientHeight * fit.lift],
+        ...(fit.zoom === undefined ? {} : { zoom: fit.zoom }),
+        duration: 400,
+      });
       return;
     }
     map?.fitBounds([fit.bounds[0] as [number, number], fit.bounds[1] as [number, number]], {

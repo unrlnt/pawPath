@@ -719,6 +719,28 @@ proxy certificate in a throwaway copy), Flevoland tiles mounted:
 
 ### Decisions log
 
+**Live location and "follow me" (2026-11-23, owner feedback after the first walk)**
+
+- **Problem 1: the dot stayed where the map was opened.** `useGeolocation`
+  asked once (`getCurrentPosition`). It now **watches** the position
+  (`watchPosition`, ≤ 5 s old — `GEOLOCATION_WATCH_MAX_AGE_MS`) while the
+  page is visible, pauses when it is hidden (battery) and resumes when shown.
+  With a fix in hand, a later timeout keeps the last position silently.
+- **Problem 2: ◎ did nothing after panning away.** It called `setCentre` with
+  the same values as before, so React saw no change and the camera never
+  moved. ◎ now always moves the camera (a new `fit` key, `lift: 0`, zoom at
+  least `MAP_DEFAULT_ZOOM`) and asks for the position again (restarts the
+  watch if it was lost).
+- **"Follow me"**: after ◎ the map keeps the walker centred as they move; the
+  icon turns terracotta ("Following you"). It stops when the walker drags,
+  pinches or scrolls the map (`movestart` with an input event → `onUserPan`),
+  and pauses while reporting, Find nearby or planning are open (walk mode
+  follows on its own).
+- Browser (simulated position): the dot moved 200 m with the walker without
+  any tap; ◎ after panning away → centred on the walker; while following the
+  centre tracked each new position; after a manual pan it stayed put; ◎ again
+  → recentred. No page errors.
+
 **Report in two steps (2026-11-23, owner feedback after the first walk)**
 
 - **Problem**: the report sheet covered most of the screen, and "Send note"
