@@ -711,6 +711,18 @@ proxy certificate in a throwaway copy), Flevoland tiles mounted:
   no tiles exist (`RETRY_EMPTY`). Tested: a Flevoland build from the Geofabrik
   URL fell through to the mirror and completed; an unknown region logs "no
   mirror had …" and "retrying after 30m".
+- **Second attempt: downloads and the OSM pass worked, then Planetiler
+  crashed on the bathing-sites file** (`Unexpected token type: START_OBJECT`,
+  NullPointerException). The EEA fetch had failed on the server, and the
+  fallback wrote an empty FeatureCollection — which **Planetiler 0.10.2 cannot
+  read** (reproduced here). Fix: the fallback writes one placeholder point
+  without `bwid` (also replacing an earlier empty file), and the generated
+  schema takes external features only when they carry the source's
+  `requiredProperty` (`bwid`). Verified: placeholder build completes and has
+  no water feature at 0,0; a build with the real EEA file still has the sites;
+  `planetiler verify` 37/37 incl. a placeholder example. Why the EEA request
+  failed on the server is not known yet — look for `[bathing …] WARNING` in
+  the `tiles` log.
 
 **Phase 7 — launch preparation (2026-11-22)**
 

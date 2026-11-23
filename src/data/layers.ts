@@ -153,8 +153,17 @@ export const EXTERNAL_SOURCES = {
    * Official EU bathing water sites (EEA, Bathing Water Directive), fetched by
    * tools/tiles/fetch-bathing-waters.sh. Properties: bwid, name, category,
    * quality, quality_year, profile, country. Point geometry.
+   *
+   * `requiredProperty`: only features carrying it reach the tiles. The fetch
+   * script's fallback (EEA unreachable) writes one placeholder point without
+   * it, because Planetiler 0.10.2 crashes on a GeoJSON file with no features.
    */
-  eeaBathingWater: { id: 'eea_bathing', arg: 'bathing_path', defaultPath: 'data/bathing-waters.geojson' },
+  eeaBathingWater: {
+    id: 'eea_bathing',
+    arg: 'bathing_path',
+    defaultPath: 'data/bathing-waters.geojson',
+    requiredProperty: 'bwid',
+  },
 } as const;
 
 export type ExternalSourceKey = keyof typeof EXTERNAL_SOURCES;

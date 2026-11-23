@@ -100,7 +100,17 @@ function layerFeatures(layer: LayerDefinition): Expr[] {
   });
   // An external source contributes every one of its features to the layer.
   const externalFeatures =
-    external === undefined ? [] : [{ source: external.id, geometry: 'point', min_zoom: minZoom, attributes }];
+    external === undefined
+      ? []
+      : [
+          {
+            source: external.id,
+            geometry: 'point',
+            min_zoom: minZoom,
+            include_when: { [external.requiredProperty]: '__any__' },
+            attributes,
+          },
+        ];
   return [...osmFeatures, ...externalFeatures];
 }
 
