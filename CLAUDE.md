@@ -515,6 +515,16 @@ Constraints that keep this compatible with §2:
   generated Planetiler schema, its features land in the same source-layers,
   and its licence goes into `SOURCE_ATTRIBUTION` (`src/data/attribution.ts`).
   Nothing is built for this until the phase starts.
+- **Owner decision (2026-11-23): only country-wide sources.** No connector is
+  built per municipality; Phase 8 starts when one source covers at least a
+  whole country. Research of the same day, so it is not repeated: Almere
+  publishes its off-leash areas only as PDF maps in the official
+  designation decision (latest Oct 2022); municipal open data exists for
+  Eindhoven, Breda (CC0), Den Haag (CC0), Alkmaar (public domain), Dronten
+  (CC0), Nijmegen (CC BY 4.0), Gooise Meren (CC BY-SA), Schiedam, Hilversum
+  — each with its own schema, and several mix dog toilet spots
+  (*uitlaatplaatsen*, usually leashed) with real off-leash areas. No national
+  dataset found on data.overheid.nl or PDOK.
 
 ---
 
@@ -551,7 +561,8 @@ Constraints that keep this compatible with §2:
       deploy fixes on the way: Geofabrik 404 → mirror fallback, empty-EEA
       crash → placeholder, http location message, empty build args → defaults.
       See "First deploy" below.)*
-- [ ] Phase 8 — Regional enrichment (post-launch)
+- [ ] Phase 8 — Regional enrichment *(on hold: waits for a country-wide
+      source, owner 2026-11-23)*
 - [x] Phase 9 — Route planner *(done 2026-11-22, pulled forward before
       Phase 7: in-browser A* on the `walk` tile layer, dog- and heat-aware;
       drag stops and the line, undo, round trip, save, share link, GPX,
