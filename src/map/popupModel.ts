@@ -8,7 +8,8 @@ import { isFeatureLevel, type FeatureLevel, type LayerKey } from '../data/layers
 import { BATHING_SEASON_MONTHS } from '../config';
 import type { WaterWarning, WaterWarnings } from '../data/sources/waterWarnings';
 import type { PawBand } from '../lib/conditions/paw';
-import type { PawBySurface } from '../lib/conditions/pawBySurface';
+import type { PawsByExposure } from '../lib/conditions/pawBySurface';
+import type { Exposure } from '../lib/routing/shade';
 import { surfaceKindFor } from '../lib/surface';
 import { ICONS, type IconSpec } from './icons';
 
@@ -106,8 +107,10 @@ const NOTES: Partial<Record<FeatureLevel, string>> = {
 };
 
 export interface PopupContext {
-  /** Live paw estimate per surface kind; absent until conditions load. */
-  readonly pawBySurface?: PawBySurface;
+  /** Live paw estimate per shade level and surface kind; absent until conditions load. */
+  readonly paws?: PawsByExposure;
+  /** This path's shade (map feature-state); absent or 'sun' = full sun. */
+  readonly shade?: Exposure;
   /** Runtime water warnings by bathing-site id. */
   readonly warnings?: WaterWarnings;
   /** 1-based month "now", for the bathing-season note. Injectable for tests. */
@@ -160,6 +163,13 @@ function bathingSitePopup(properties: Record<string, unknown>, context: PopupCon
   };
 }
 
+const SHADE_WORDS: Readonly<Record<Exposure, string>> = {
+  sun: 'in the sun',
+  light: 'in light shade (trees alongside)',
+  medium: 'in partial shade',
+  dense: 'in the shade of trees',
+};
+
 const LIVE_PAW_TITLE: Readonly<Record<PawBand, string>> = {
   fine: 'Kind to paws right now',
   caution: 'Getting warm for paws',
@@ -180,12 +190,13 @@ export function popupModel(
   let title = level === undefined ? SINGULAR[layer] : LEVEL_LABELS[level];
 
   // Paths: say what the surface is like for paws NOW, not just its material.
-  if (layer === 'surface' && context.pawBySurface !== undefined) {
+  if (layer === 'surface' && context.paws !== undefined) {
     const kind = surfaceKindFor(str(properties['surface']));
     if (kind !== undefined) {
-      const paw = context.pawBySurface[kind];
+      const shade = context.shade ?? 'sun';
+      const paw = context.paws[shade][kind];
       title = LIVE_PAW_TITLE[paw.band];
-      details.unshift(`Paws now: about ${paw.lowC}–${paw.highC} °C in the sun (estimate)`);
+      details.unshift(`Paws now: about ${paw.lowC}–${paw.highC} °C ${SHADE_WORDS[shade]} (estimate)`);
     }
   }
 

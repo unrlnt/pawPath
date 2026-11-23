@@ -19,6 +19,7 @@ import { palette, pawRisk, safety } from '../styles/tokens';
 import type { PawBand } from '../lib/conditions/paw';
 import { PAVED_KINDS, SURFACE_VALUES_BY_KIND } from '../lib/surface';
 import type { PawSurfaceKind } from '../config';
+import type { Exposure } from '../lib/routing/shade';
 import { HATCH, ICONS, iconId } from './icons';
 
 const PAVED_VALUES: string[] = PAVED_KINDS.flatMap((kind) => [...SURFACE_VALUES_BY_KIND[kind]]);
@@ -38,7 +39,7 @@ export const SURFACE_LAYER_IDS = ['pawpath-surface-paved', 'pawpath-surface-unpa
  * Hotter bands draw wider, so heat does not rely on colour alone.
  */
 export function surfacePaint(
-  bands: Readonly<Record<PawSurfaceKind, PawBand>> | undefined,
+  bands: Readonly<Record<Exposure, Readonly<Record<PawSurfaceKind, PawBand>>>> | undefined,
 ): { 'line-color': DataDrivenPropertyValueSpecification<string>; 'line-width': DataDrivenPropertyValueSpecification<number> } {
   const width = (factor: number): ExpressionSpecification =>
     ['interpolate', ['linear'], ['zoom'], 15, 2 * factor, 18, 6 * factor] as unknown as ExpressionSpecification;
@@ -46,22 +47,33 @@ export function surfacePaint(
     return { 'line-color': byLevel(pawRisk, palette.inkSoft), 'line-width': width(1) };
   }
   const kinds = Object.keys(SURFACE_VALUES_BY_KIND) as PawSurfaceKind[];
+  // Each path's shade (feature-state `shade`, set by `annotateSurfaceShade`)
+  // picks the band of its surface under that shade; unknown = full sun.
+  const byShade = <T,>(kind: PawSurfaceKind, value: (band: PawBand) => T): unknown => [
+    'match',
+    ['coalesce', ['feature-state', 'shade'], 'sun'],
+    'dense',
+    value(bands.dense[kind]),
+    'medium',
+    value(bands.medium[kind]),
+    'light',
+    value(bands.light[kind]),
+    value(bands.sun[kind]),
+  ];
   const colour = [
     'match',
     ['get', 'surface'],
-    ...kinds.flatMap((kind) => [[...SURFACE_VALUES_BY_KIND[kind]], BAND_COLOUR[bands[kind]]]),
+    ...kinds.flatMap((kind) => [[...SURFACE_VALUES_BY_KIND[kind]], byShade(kind, (b) => BAND_COLOUR[b])]),
     palette.inkSoft,
   ] as unknown as ExpressionSpecification;
   const factorFor = (band: PawBand): number => (band === 'danger' ? 1.5 : band === 'caution' ? 1.2 : 1);
-  const lineWidth = [
-    'interpolate',
-    ['linear'],
-    ['zoom'],
-    15,
-    ['match', ['get', 'surface'], ...kinds.flatMap((k) => [[...SURFACE_VALUES_BY_KIND[k]], 2 * factorFor(bands[k])]), 2],
-    18,
-    ['match', ['get', 'surface'], ...kinds.flatMap((k) => [[...SURFACE_VALUES_BY_KIND[k]], 6 * factorFor(bands[k])]), 6],
-  ] as unknown as ExpressionSpecification;
+  const widthAt = (base: number): unknown => [
+    'match',
+    ['get', 'surface'],
+    ...kinds.flatMap((k) => [[...SURFACE_VALUES_BY_KIND[k]], byShade(k, (b) => base * factorFor(b))]),
+    base,
+  ];
+  const lineWidth = ['interpolate', ['linear'], ['zoom'], 15, widthAt(2), 18, widthAt(6)] as unknown as ExpressionSpecification;
   return { 'line-color': colour, 'line-width': lineWidth };
 }
 

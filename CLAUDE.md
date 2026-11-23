@@ -718,6 +718,25 @@ proxy certificate in a throwaway copy), Flevoland tiles mounted:
 
 ### Decisions log
 
+**Shade in the map's path colours (2026-11-23)**
+
+- **Same lookup as the route planner, on the map**: when the map is idle
+  with paths shown (z15+), `annotateSurfaceShade()` (`src/map/surfaceShade.ts`)
+  takes the loaded `surface` and `shade` features (`querySourceFeatures`),
+  tests every new path segment with `stretchShade` (8 m side reach, tree rows
+  within 10 m) and sets **feature-state `shade`** on the path: the level that
+  covers most of it when at least half is shaded, else `sun`. Tile pieces of
+  one path are added up by id; each path is done once.
+- **The paint reads the state**: `surfacePaint()` now takes paw bands per
+  exposure (sun, light, medium, dense — `pawsByExposure()`), and colour and
+  width pick the band of the path's surface *under its shade*
+  (`['feature-state','shade']`). No re-fetch, no server.
+- **Popups** say it: "about 31–35 °C in the shade of trees (estimate)" /
+  "in light shade (trees alongside)" / "in the sun".
+- Browser, Almeerderhout area, simulated heat (31 °C, 900 W/m²), z16: open
+  asphalt terracotta (10 paths), asphalt along the forest edge yellow (light
+  shade), unpaved forest paths green with dense/medium shade; no style errors.
+
 **Phase 9c — add a stop (2026-11-23)**
 
 - **"Add a stop on the way: Water · Bags · Bin · Bench"** in the route panel.
@@ -990,8 +1009,8 @@ stretch goal)**
   scrub), tree rows as round dots; hatch tiles drawn at runtime like the icons.
 - **Not done (stretch)**: canopy fraction for paths running through shade
   polygons — the per-path estimate assumes full sun, which is the safe side.
-  *Done for planned routes in Phase 9b; the map's path colours still assume
-  full sun.*
+  *Done for planned routes in Phase 9b, and for the map's path colours on
+  2026-11-23 (see "Shade in the map's path colours").*
 - **Mobile app** recorded as Phase 11 (owner idea): PWA first, Capacitor later.
 
 **Phase 4 + owner feedback (2026-11-22)**

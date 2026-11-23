@@ -26,7 +26,7 @@ import { NO_WARNINGS, loadWaterWarnings, type WaterWarnings } from '../../data/s
 import { isStoredLocation, readStored, writeStored } from '../../lib/storage';
 import ConditionsCard from '../conditions/ConditionsCard';
 import { useConditions } from '../conditions/useConditions';
-import { pawBySurface } from '../../lib/conditions/pawBySurface';
+import { pawsByExposure } from '../../lib/conditions/pawBySurface';
 import {
   AdSlot,
   Banner,
@@ -112,7 +112,7 @@ export default function MapPage() {
   const conditions = useConditions(geolocation.position ?? viewport?.centre);
   // Recomputed only when the current hour changes, not on every render.
   const currentHour = conditions.status === 'ready' ? conditions.summary.current.hour : undefined;
-  const paws = useMemo(() => (currentHour === undefined ? undefined : pawBySurface(currentHour)), [currentHour]);
+  const paws = useMemo(() => (currentHour === undefined ? undefined : pawsByExposure(currentHour)), [currentHour]);
 
   // Route planner (Phase 9).
   const planner = useRoutePlanner(tilesUrl, currentHour);
@@ -228,7 +228,7 @@ export default function MapPage() {
           tilesUrl={tilesUrl}
           enabledLayers={enabled}
           disabledLevels={disabledLevels}
-          pawBySurface={paws}
+          paws={paws}
           warnings={warnings}
           userPosition={
             watch.position !== undefined ? { lat: watch.position[1], lng: watch.position[0] } : (geolocation.position ?? pin)

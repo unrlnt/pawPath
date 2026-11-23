@@ -12,6 +12,7 @@ import { useEffect, useRef } from 'react';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 import {
+  LAYER_MIN_ZOOM,
   MAP_ATTRIBUTION,
   MAP_MAX_ZOOM,
   MAP_MIN_ZOOM,
@@ -21,7 +22,9 @@ import {
 import { SOURCE_ATTRIBUTION } from '../../data/attribution';
 import { isFeatureLevel, isLayerKey, type FeatureLevel, type LayerKey } from '../../data/layers';
 import { GLYPHS, registerIcons } from '../../map/icons';
-import type { PawBySurface } from '../../lib/conditions/pawBySurface';
+import type { PawsByExposure } from '../../lib/conditions/pawBySurface';
+import { annotateSurfaceShade } from '../../map/surfaceShade';
+import type { Exposure } from '../../lib/routing/shade';
 import type { WaterWarnings } from '../../data/sources/waterWarnings';
 import {
   PAWPATH_SOURCE_ID,
@@ -98,7 +101,7 @@ export interface MapViewProps {
   /** Levels switched off in the filter sheet (dog=yes until opted in). */
   readonly disabledLevels: readonly FeatureLevel[];
   /** Live paw estimate per surface kind: recolours every path by its own surface. */
-  readonly pawBySurface: PawBySurface | undefined;
+  readonly paws: PawsByExposure | undefined;
   /** Runtime water warnings; named bathing sites turn red. */
   readonly warnings: WaterWarnings;
   readonly userPosition: { lat: number; lng: number } | undefined;
@@ -126,6 +129,8 @@ export interface MapViewProps {
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
+
+const isExposure = (v: unknown): v is Exposure => v === 'sun' || v === 'light' || v === 'medium' || v === 'dense';
 
 /** Popup body built from DOM nodes and textContent only — OSM text is untrusted input. */
 function popupContent(
@@ -217,7 +222,7 @@ export default function MapView({
   tilesUrl,
   enabledLayers,
   disabledLevels,
-  pawBySurface,
+  paws,
   warnings,
   userPosition,
   onViewportChange,
@@ -234,8 +239,8 @@ export default function MapView({
   const mapRef = useRef<MapLibreMap | null>(null);
   const styleReady = useRef(false);
   // Latest props for handlers registered once.
-  const latest = useRef({ tilesUrl, enabledLayers, disabledLevels, pawBySurface, warnings, userPosition, onViewportChange, onDropPin, route, onReportGone });
-  latest.current = { tilesUrl, enabledLayers, disabledLevels, pawBySurface, warnings, userPosition, onViewportChange, onDropPin, route, onReportGone };
+  const latest = useRef({ tilesUrl, enabledLayers, disabledLevels, paws, warnings, userPosition, onViewportChange, onDropPin, route, onReportGone });
+  latest.current = { tilesUrl, enabledLayers, disabledLevels, paws, warnings, userPosition, onViewportChange, onDropPin, route, onReportGone };
   const markers = useRef<maplibregl.Marker[]>([]);
 
   /** Adds our source and layers if the style is ready and the URL known. Idempotent. */
@@ -260,17 +265,20 @@ export default function MapView({
       }
     }
     // Every path coloured by the live paw band of its own surface.
-    const paws = latest.current.pawBySurface;
+    // Every path coloured by the live paw band of its own surface, under its
+    // own shade (feature-state set by annotateSurfaceShade).
+    const live = latest.current.paws;
+    const bandsOf = (p: PawsByExposure[Exposure]) => ({
+      asphalt: p.asphalt.band,
+      concrete: p.concrete.band,
+      sand: p.sand.band,
+      gravel: p.gravel.band,
+      grass: p.grass.band,
+    });
     const paint = surfacePaint(
-      paws === undefined
+      live === undefined
         ? undefined
-        : {
-            asphalt: paws.asphalt.band,
-            concrete: paws.concrete.band,
-            sand: paws.sand.band,
-            gravel: paws.gravel.band,
-            grass: paws.grass.band,
-          },
+        : { sun: bandsOf(live.sun), light: bandsOf(live.light), medium: bandsOf(live.medium), dense: bandsOf(live.dense) },
     );
     for (const id of SURFACE_LAYER_IDS) {
       if (map.getLayer(id) === undefined) continue;
@@ -507,6 +515,16 @@ export default function MapView({
       syncRoute(map);
     });
 
+    // Shade per path for the paw colours: annotate newly loaded paths once the
+    // map settles, only while paths are shown (they draw from z15).
+    const shadeSeen = new Set<string | number>();
+    map.on('idle', () => {
+      const id = SURFACE_LAYER_IDS[0];
+      if (!styleReady.current || map.getLayer(id) === undefined) return;
+      if (map.getLayoutProperty(id, 'visibility') !== 'visible' || map.getZoom() < LAYER_MIN_ZOOM.surface) return;
+      annotateSurfaceShade(map, shadeSeen);
+    });
+
     const emitViewport = (): void => {
       const c = map.getCenter();
       latest.current.onViewportChange({ centre: { lat: c.lat, lng: c.lng }, zoom: map.getZoom() });
@@ -590,7 +608,8 @@ export default function MapView({
             hit.properties,
             hit.id,
             {
-              ...(latest.current.pawBySurface === undefined ? {} : { pawBySurface: latest.current.pawBySurface }),
+              ...(latest.current.paws === undefined ? {} : { paws: latest.current.paws }),
+              ...(isExposure(hit.state['shade']) ? { shade: hit.state['shade'] } : {}),
               warnings: latest.current.warnings,
             },
             kind === undefined
@@ -648,7 +667,7 @@ export default function MapView({
     const map = mapRef.current;
     if (map !== null) syncPawpath(map);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tilesUrl, enabledLayers, disabledLevels, pawBySurface, warnings]);
+  }, [tilesUrl, enabledLayers, disabledLevels, paws, warnings]);
 
   useEffect(() => {
     const map = mapRef.current;

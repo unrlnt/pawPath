@@ -24,6 +24,17 @@ export function pawBySurface(hour: Weather, canopyFraction = 0): PawBySurface {
   return out;
 }
 
+/** The full estimate per surface kind, for full sun and each shade level. */
+export type PawsByExposure = Readonly<Record<Exposure, PawBySurface>>;
+
+export function pawsByExposure(hour: Weather): PawsByExposure {
+  const out = {} as Record<Exposure, PawBySurface>;
+  for (const exposure of Object.keys(SHADE_CANOPY_FRACTION) as Exposure[]) {
+    out[exposure] = pawBySurface(hour, SHADE_CANOPY_FRACTION[exposure]);
+  }
+  return out;
+}
+
 export type PawBands = Readonly<Record<PawSurfaceKind, PawBand>>;
 /** Paw band per surface kind, for full sun and for each shade level. */
 export type PawBandsByExposure = Readonly<Record<Exposure, PawBands>>;
