@@ -13,7 +13,8 @@ import { PbfReader as Pbf } from 'pbf';
 import { PMTiles, type Source } from 'pmtiles';
 
 import { ROUTE_MAX_TILES, ROUTE_SHADE_SIDE_REACH_M, ROUTE_TILE_MARGIN_M, ROUTE_TREE_ROW_REACH_M } from '../../config';
-import { buildGraph, type GridLine, type Tags, type WalkGraph } from '../../lib/routing/graph';
+import { buildGraph, gridToLngLat, type GridLine, type Tags, type WalkGraph } from '../../lib/routing/graph';
+import type { Poi, PoiKind } from '../../lib/routing/stops';
 import { makeShadeLookup, type ShadeArea, type ShadeLevel, type ShadeLine } from '../../lib/routing/shade';
 import type { LngLat } from '../../lib/routing/route';
 import { WALK_GRAPH_ZOOM, WALK_LAYER } from '../walkGraph';
@@ -24,10 +25,21 @@ export interface DecodedTile {
   readonly lines: GridLine[];
   readonly shadeAreas: ShadeArea[];
   readonly shadeLines: ShadeLine[];
+  /** Benches, bins, dispensers and taps — for "add a stop". */
+  readonly pois: Poi[];
   readonly extent: number;
 }
 
-const EMPTY_TILE: DecodedTile = { lines: [], shadeAreas: [], shadeLines: [], extent: 4096 };
+/** Tile layer (and level) → the planner's amenity kind. */
+function poiKind(layer: string, level: unknown): PoiKind | undefined {
+  if (layer === 'benches') return 'bench';
+  if (layer === 'drinkingWater') return 'water';
+  if (layer === 'waste') return level === 'dog_bin' ? 'dogBin' : level === 'bag_dispenser' ? 'bagDispenser' : 'bin';
+  return undefined;
+}
+const POI_LAYERS = ['benches', 'waste', 'drinkingWater'] as const;
+
+const EMPTY_TILE: DecodedTile = { lines: [], shadeAreas: [], shadeLines: [], pois: [], extent: 4096 };
 
 const isShadeLevel = (value: unknown): value is ShadeLevel => value === 'dense' || value === 'medium' || value === 'light';
 
@@ -73,7 +85,21 @@ export function decodeRoutingTile(bytes: Uint8Array, x: number, y: number): Deco
       else if (feature.type === 2) for (const points of geometry) shadeLines.push({ level, points });
     }
   }
-  return { lines, shadeAreas, shadeLines, extent };
+  const pois: Poi[] = [];
+  for (const name of POI_LAYERS) {
+    const layer = layers[name];
+    if (layer === undefined) continue;
+    for (let i = 0; i < layer.length; i += 1) {
+      const feature = layer.feature(i);
+      const kind = poiKind(name, feature.properties['level']);
+      const p = feature.loadGeometry()[0]?.[0];
+      if (kind === undefined || p === undefined) continue;
+      // Points outside the tile proper are the neighbour's (tile buffer).
+      if (p.x < 0 || p.y < 0 || p.x >= layer.extent || p.y >= layer.extent) continue;
+      pois.push({ kind, at: gridToLngLat(x * layer.extent + p.x, y * layer.extent + p.y, WALK_GRAPH_ZOOM, layer.extent) });
+    }
+  }
+  return { lines, shadeAreas, shadeLines, pois, extent };
 }
 
 /** Grid units per metre at a z14 tile row (Web Mercator scale grows with latitude). */
@@ -109,7 +135,7 @@ export function graphTilesFor(points: readonly LngLat[]): [number, number][] | u
 }
 
 export type GraphOutcome =
-  | { readonly ok: true; readonly graph: WalkGraph }
+  | { readonly ok: true; readonly graph: WalkGraph; readonly pois: readonly Poi[] }
   | { readonly ok: false; readonly reason: 'tooFar' | 'unavailable' };
 
 /**
@@ -154,7 +180,11 @@ export class WalkGraphSource {
         ),
         sideReach: ROUTE_SHADE_SIDE_REACH_M * perMetre,
       };
-      return { ok: true, graph: buildGraph(decoded.flatMap((d) => d.lines), WALK_GRAPH_ZOOM, extent, shade) };
+      return {
+        ok: true,
+        graph: buildGraph(decoded.flatMap((d) => d.lines), WALK_GRAPH_ZOOM, extent, shade),
+        pois: decoded.flatMap((d) => d.pois),
+      };
     } catch (cause) {
       console.warn('[route] graph tiles failed', cause);
       return { ok: false, reason: 'unavailable' };

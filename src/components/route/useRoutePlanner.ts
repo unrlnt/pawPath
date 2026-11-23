@@ -6,11 +6,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { ROUTE_MAX_SAVED, ROUTE_MAX_WAYPOINTS, STORAGE_KEYS } from '../../config';
+import { ROUTE_MAX_SAVED, ROUTE_MAX_WAYPOINTS, ROUTE_STOP_MAX_OFF_ROUTE_M, STORAGE_KEYS } from '../../config';
 import { WalkGraphSource } from '../../data/sources/walkGraphSource';
 import { pawBandsByExposure } from '../../lib/conditions/pawBySurface';
 import type { HourPoint } from '../../lib/conditions/types';
 import { bestInsertIndex } from '../../lib/routing/edit';
+import { chooseStop, STOP_KINDS, type Poi, type StopKind } from '../../lib/routing/stops';
 import { decodeRouteHash, encodeRouteHash, isSavedRouteList, type SavedRoute } from '../../lib/routing/io';
 import { planRoute, type LngLat, type RouteResult } from '../../lib/routing/route';
 import { readStored, writeStored } from '../../lib/storage';
@@ -94,6 +95,8 @@ export function useRoutePlanner(tilesUrl: string | undefined, hour: HourPoint | 
 
   // Route whenever the stops, the loop or the weather change.
   const run = useRef(0);
+  /** Amenities in the tiles of the last route calculation. */
+  const poisRef = useRef<readonly Poi[]>([]);
   useEffect(() => {
     const stops = state.roundTrip && state.waypoints.length >= 2 ? [...state.waypoints, state.waypoints[0] as LngLat] : state.waypoints;
     if (!active || stops.length < 2) {
@@ -115,6 +118,7 @@ export function useRoutePlanner(tilesUrl: string | undefined, hour: HourPoint | 
         setStatus({ kind: 'failed', message: FAILURE_TEXT[outcome.reason] });
         return;
       }
+      poisRef.current = outcome.pois;
       const result = planRoute(outcome.graph, stops, context);
       if (result.ok) setStatus({ kind: 'ready', result });
       else if (result.reason === 'tooFew') setStatus({ kind: 'idle' });
@@ -168,7 +172,25 @@ export function useRoutePlanner(tilesUrl: string | undefined, hour: HourPoint | 
     return url.toString();
   };
 
+  /** "Add a stop": route via the nearest amenity of this kind. Returns what to tell the walker. */
+  const addStop = useCallback(
+    (kind: StopKind): string => {
+      if (status.kind !== 'ready') return 'Plan a route first, then add a stop.';
+      const choice = chooseStop(kind, status.result.line, state.waypoints, poisRef.current);
+      const noun = STOP_KINDS[kind].noun;
+      if (!choice.ok) {
+        return choice.reason === 'already-on-route'
+          ? `Your walk already passes a ${noun}.`
+          : `No ${noun} is mapped within ${ROUTE_STOP_MAX_OFF_ROUTE_M} m of this walk.`;
+      }
+      insertVia(choice.poi.at);
+      return `Added a ${noun} about ${Math.max(10, Math.round(choice.offRouteM / 10) * 10)} m off your route.`;
+    },
+    [status, state.waypoints, insertVia],
+  );
+
   return {
+    addStop,
     active,
     start: () => setActive(true),
     stop: () => setActive(false),

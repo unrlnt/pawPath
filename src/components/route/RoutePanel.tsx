@@ -4,11 +4,12 @@
  * to edit, save, share, export and walk it.
  */
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 import { ROUTE_WALK_KMH } from '../../config';
 import { formatDistance, formatMinutes, type Progress } from '../../lib/routing/edit';
 import { toGpx, type SavedRoute } from '../../lib/routing/io';
+import { STOP_KINDS, type StopKind } from '../../lib/routing/stops';
 import type { RoutePlanner } from './useRoutePlanner';
 
 const pill =
@@ -95,9 +96,12 @@ export default function RoutePanel({
   const { status, waypoints } = planner;
   const ready = status.kind === 'ready' ? status.result : undefined;
 
-  const flash = (text: string): void => {
+  // One timer: a new message must not be cleared by an older one's timeout.
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const flash = (text: string, ms = 2_500): void => {
     setNotice(text);
-    setTimeout(() => setNotice(undefined), 2_500);
+    if (noticeTimer.current !== undefined) clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setNotice(undefined), ms);
   };
 
   const share = async (): Promise<void> => {
@@ -151,6 +155,24 @@ export default function RoutePanel({
       </div>
 
       {ready !== undefined && !walking ? <ProfileBar result={ready} /> : null}
+      {ready !== undefined && !walking ? (
+        <>
+          <p className="mt-2 text-xs font-bold text-inkSoft">Add a stop on the way:</p>
+          <div className="mt-1 flex items-center gap-2 overflow-x-auto pb-0.5 [scrollbar-width:none]">
+            {(Object.keys(STOP_KINDS) as StopKind[]).map((kind) => (
+              <button
+                key={kind}
+                type="button"
+                className={`${quiet} min-h-[40px]`}
+                onClick={() => flash(planner.addStop(kind), 4_000)}
+                aria-label={`Route via the nearest ${STOP_KINDS[kind].noun}`}
+              >
+                <span aria-hidden>{STOP_KINDS[kind].icon}</span> {STOP_KINDS[kind].label}
+              </button>
+            ))}
+          </div>
+        </>
+      ) : null}
       {ready !== undefined && !walking && waypoints.length >= 2 ? (
         <p className="mt-1 text-xs text-inkSoft">
           Drag a stop to move it, tap it to remove it, or drag the line onto another path.

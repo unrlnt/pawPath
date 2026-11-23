@@ -368,6 +368,10 @@ export const ROUTE_TILE_MARGIN_M = 800;
 export const ROUTE_MAX_TILES = 64;
 /** At most this many waypoints per route (also the share-link limit). */
 export const ROUTE_MAX_WAYPOINTS = 30;
+/** "Add a stop": only amenities at most this far from the current route, metres. */
+export const ROUTE_STOP_MAX_OFF_ROUTE_M = 400;
+/** An amenity this close to an existing stop counts as already on the route. */
+export const ROUTE_STOP_SAME_PLACE_M = 20;
 /** Saved routes kept in localStorage. */
 export const ROUTE_MAX_SAVED = 50;
 /** Cost per metre by highway class: 1 = preferred. */

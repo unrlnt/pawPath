@@ -5,6 +5,7 @@ import { buildGraph, gridToLngLat, type GridLine } from './graph';
 import { makeShadeLookup, stretchShade } from './shade';
 import { edgeFactor as factorOf, sunFactor } from './cost';
 import { bestInsertIndex, formatDistance, formatMinutes, progressAlong } from './edit';
+import { chooseStop } from './stops';
 import { decodeRouteHash, encodeRouteHash, toGpx } from './io';
 import { planRoute } from './route';
 
@@ -244,5 +245,33 @@ describe('shade along the route', () => {
     expect(warm.profile.shadeM).toBeGreaterThan(0);
     expect(warm.profile.denseShadeM).toBe(warm.profile.shadeM);
     expect(warm.segments.some((seg) => seg.shaded)).toBe(true);
+  });
+});
+
+describe('add a stop', () => {
+  // A route due east along 52.36 N, about 2.7 km long.
+  const line: [number, number][] = [[5.2, 52.36], [5.24, 52.36]];
+  const near = (dLat: number, lng: number): [number, number] => [lng, 52.36 + dLat];
+
+  it('picks the closest matching amenity within reach', () => {
+    const pois = [
+      { kind: 'water' as const, at: near(0.003, 5.21) }, // ~330 m off
+      { kind: 'water' as const, at: near(0.001, 5.23) }, // ~110 m off
+      { kind: 'bench' as const, at: near(0.0001, 5.22) }, // closer, wrong kind
+    ];
+    const choice = chooseStop('water', line, [line[0] as [number, number], line[1] as [number, number]], pois);
+    expect(choice.ok && choice.poi.at).toEqual(near(0.001, 5.23));
+  });
+
+  it('counts dog bins as bins, and says when nothing is near', () => {
+    const pois = [{ kind: 'dogBin' as const, at: near(0.0005, 5.21) }];
+    expect(chooseStop('bin', line, [], pois).ok).toBe(true);
+    expect(chooseStop('water', line, [], pois)).toEqual({ ok: false, reason: 'none-near' });
+    expect(chooseStop('bin', line, [], [{ kind: 'bin', at: near(0.01, 5.21) }])).toEqual({ ok: false, reason: 'none-near' });
+  });
+
+  it('does not add an amenity that is already a stop', () => {
+    const tap = near(0.0005, 5.21);
+    expect(chooseStop('water', line, [tap], [{ kind: 'water', at: tap }])).toEqual({ ok: false, reason: 'already-on-route' });
   });
 });

@@ -567,8 +567,8 @@ Constraints that keep this compatible with §2:
       Phase 7: in-browser A* on the `walk` tile layer, dog- and heat-aware;
       drag stops and the line, undo, round trip, save, share link, GPX,
       "walk it"; shade along the route preferred in the heat and shown.
-      Verified in the browser at Almere. Routing *via* amenities: after
-      launch.)*
+      Verified in the browser at Almere. "Add a stop" (water, bags, bin,
+      bench) done 2026-11-23.)*
 - [ ] Phase 10 — Community mirrors *(idea)*
 - [~] Phase 11 — Mobile app *(step 1, PWA, done 2026-11-23: installable,
       offline shell and offline map for areas already viewed; verified in
@@ -717,6 +717,23 @@ proxy certificate in a throwaway copy), Flevoland tiles mounted:
   previous `tiles` image instead. Nothing else in that image changed.
 
 ### Decisions log
+
+**Phase 9c — add a stop (2026-11-23)**
+
+- **"Add a stop on the way: Water · Bags · Bin · Bench"** in the route panel.
+  The planner already loads the z14 tiles around the route; their benches,
+  waste and drinking-water points (inside each tile proper, not the buffer)
+  are kept with the graph, and the pure `chooseStop()` picks the one closest
+  to the current route line (ties: earlier on the route) within
+  `ROUTE_STOP_MAX_OFF_ROUTE_M` = 400 m, skipping one already used as a stop
+  (≤ 20 m). It is inserted with the existing `insertVia`, so it lands between
+  the right stops and undo covers it.
+- Bins accept dog bins too; "Bags" only real bag dispensers. Plain messages:
+  "Added a bench about 10 m off your route", "No poop-bag dispenser is mapped
+  within 400 m of this walk", "Your walk already passes a …".
+- Browser, Almere centre: bench +10 m, bin +10 m, tap +180 m (walk 1.1 →
+  1.4 km), bags: none within 400 m. Found while testing: an older message's
+  timer cleared the newer one — one timer now.
 
 **Phase 12 — report what's missing (2026-11-23)**
 
