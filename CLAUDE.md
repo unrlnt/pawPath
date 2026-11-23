@@ -559,7 +559,9 @@ Constraints that keep this compatible with §2:
       Verified in the browser at Almere. Routing *via* amenities: after
       launch.)*
 - [ ] Phase 10 — Community mirrors *(idea)*
-- [ ] Phase 11 — Mobile app *(idea: PWA first, Capacitor later)*
+- [~] Phase 11 — Mobile app *(step 1, PWA, done 2026-11-23: installable,
+      offline shell and offline map for areas already viewed; verified in
+      Chromium. Capacitor not started.)*
 - [ ] Phase 12 — Report what's missing *(idea: anonymous OSM Notes, permanent
       features only)*
 
@@ -702,6 +704,29 @@ proxy certificate in a throwaway copy), Flevoland tiles mounted:
   previous `tiles` image instead. Nothing else in that image changed.
 
 ### Decisions log
+
+**Phase 11, step 1 — PWA (2026-11-23)**
+
+- **Installable**: `manifest.webmanifest` (standalone, portrait, cream
+  theme), terracotta paw icons 192/512 + maskable 512 + Apple touch icon,
+  rendered from one SVG. Chromium reports no installability errors.
+- **Hand-written service worker** (`public/sw.js`, no plugin): page network
+  first with cached fallback; `/assets/*` cache first (hashed); `/tiles/*.json`
+  network first; OpenFreeMap cache first (≤ 1,500 entries); weather and search
+  untouched (they handle offline themselves); registered in production on
+  secure origins only.
+- **`.pmtiles` byte ranges are cached one by one** (the Cache API cannot store
+  206): stored as 200 under `…pmtiles?pawpath-range=bytes=a-b`, answered as
+  206, ≤ 600 ranges. Safe because file names are immutable per build.
+  **Bug caught in testing:** the first version keyed ranges with a
+  `#fragment`, which cache matching *ignores* — every range was answered with
+  the first one cached (the header), corrupting tiles even online. Now a query
+  parameter; the cache was renamed (`-v2`) so a phone holding the bad entries
+  drops them.
+- Verified with the real Caddyfile in the Caddy image: `sw.js` no-cache,
+  manifest `application/manifest+json`; after one online visit, an offline
+  reload shows basemap, benches, paw-coloured paths and shade.
+- Caddy: `sw.js` `no-cache`, manifest 1 h with its content type.
 
 **First deploy (2026-11-23)**
 

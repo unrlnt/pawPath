@@ -77,6 +77,14 @@ intermittent; when it fails, the build uses the previous download in
 `tiles-work`, else the copy bundled in the repo
 (`tools/tiles/data/bathing-waters.geojson.gz`), and never fails over it.
 
+### Installing on a phone (PWA)
+
+Open the site, then **iPhone (Safari):** Share → *Add to Home Screen*;
+**Android (Chrome):** menu → *Install app*. The app opens full screen and
+keeps working offline in areas already viewed (map, our layers; weather and
+search need a connection). Updates arrive on the next launch with a
+connection.
+
 ### When the builder rebuilds
 
 On first start, when the tiles are older than `REBUILD_AFTER_DAYS`, and when

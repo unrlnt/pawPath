@@ -43,6 +43,11 @@
 		header /assets/* Cache-Control "public, max-age=31536000, immutable"
 		@shell path / /index.html
 		header @shell Cache-Control "public, max-age=300"
+		# The service worker and manifest must update promptly after a deploy.
+		header /sw.js Cache-Control "no-cache"
+		@manifest path /manifest.webmanifest
+		header @manifest Cache-Control "public, max-age=3600"
+		header @manifest Content-Type "application/manifest+json"
 		try_files {path} /index.html
 		file_server
 	}
