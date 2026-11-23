@@ -9,6 +9,7 @@ import {
   DEFAULT_ENABLED_LAYERS,
   MAP_DEFAULT_ZOOM,
   MAP_FALLBACK_CENTRE,
+  REPORT_CROSSHAIR_Y,
   STORAGE_KEYS,
   WATER_WARNINGS_REFRESH_MS,
 } from '../../config';
@@ -35,6 +36,7 @@ import {
   ZoomHint,
   layersAwaitingZoom,
 } from './Chrome';
+import ReportSheet, { type ReportTarget } from '../report/ReportSheet';
 import RoutePanel, { SavedRoutesSheet } from '../route/RoutePanel';
 import { useRoutePlanner } from '../route/useRoutePlanner';
 import { useWatchPosition } from '../route/useWatchPosition';
@@ -76,6 +78,9 @@ export default function MapPage() {
   const [attributionPx, setAttributionPx] = useState(24);
   const [mapError, setMapError] = useState<string | undefined>(undefined);
   const online = useOnline();
+  const [report, setReport] = useState<ReportTarget | undefined>(undefined);
+  const [crosshairAt, setCrosshairAt] = useState<{ lat: number; lng: number } | undefined>(undefined);
+  const crosshair = useMemo(() => (report?.change === 'missing' ? { x: 0.5, y: REPORT_CROSSHAIR_Y } : undefined), [report?.change]);
   const [warnings, setWarnings] = useState<WaterWarnings>(NO_WARNINGS);
 
   // Warnings change during the day in season; refresh every 30 minutes.
@@ -232,6 +237,12 @@ export default function MapPage() {
           fit={fit}
           onAttributionHeight={setAttributionPx}
           onMapError={setMapError}
+          crosshair={crosshair}
+          onCrosshairMove={setCrosshairAt}
+          onReportGone={(gone) => {
+            planner.stop();
+            setReport({ change: 'gone', ...gone });
+          }}
           onViewportChange={setViewport}
           onDropPin={(position) => {
             setPin(position);
@@ -279,8 +290,15 @@ export default function MapPage() {
             <ControlButton label="Recentre on me" onClick={recentre}>
               ◎
             </ControlButton>
+            {!planner.active && report === undefined ? (
+              <ControlButton label="Report something missing" onClick={() => setReport({ change: 'missing' })}>
+                ⚑
+              </ControlButton>
+            ) : null}
           </div>
-          {planner.active ? (
+          {report !== undefined ? (
+            <ReportSheet target={report} where={crosshairAt} onClose={() => setReport(undefined)} />
+          ) : planner.active ? (
             <RoutePanel
               planner={planner}
               walking={walking}
@@ -304,6 +322,21 @@ export default function MapPage() {
             <LayerToggles enabled={enabled} onToggle={toggleLayer} onOpenFilters={() => setFiltersOpen(true)} />
           )}
         </div>
+
+        {report?.change === 'missing' ? (
+          // The spot being reported: move the map under this cross.
+          <div
+            aria-hidden
+            className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2 -translate-y-1/2"
+            style={{ top: `${REPORT_CROSSHAIR_Y * 100}%` }}
+          >
+            <div className="relative h-10 w-10">
+              <span className="absolute left-1/2 top-0 h-10 w-[3px] -translate-x-1/2 rounded-full bg-ink" />
+              <span className="absolute left-0 top-1/2 h-[3px] w-10 -translate-y-1/2 rounded-full bg-ink" />
+              <span className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-cream bg-terracotta" />
+            </div>
+          </div>
+        ) : null}
 
         {savedOpen ? (
           <SavedRoutesSheet

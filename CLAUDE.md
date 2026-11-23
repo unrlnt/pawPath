@@ -573,8 +573,10 @@ Constraints that keep this compatible with §2:
 - [~] Phase 11 — Mobile app *(step 1, PWA, done 2026-11-23: installable,
       offline shell and offline map for areas already viewed; verified in
       Chromium. Capacitor not started.)*
-- [ ] Phase 12 — Report what's missing *(idea: anonymous OSM Notes, permanent
-      features only)*
+- [x] Phase 12 — Report what's missing *(done 2026-11-23: anonymous OSM
+      notes for benches, bins, dog bins, bag dispensers and taps — "missing
+      here" with a crosshair, "not there anymore" from a popup; one per
+      minute; verified in the browser against an intercepted API.)*
 
 ### Phase 2R — verification (2026-11-21)
 
@@ -715,6 +717,26 @@ proxy certificate in a throwaway copy), Flevoland tiles mounted:
   previous `tiles` image instead. Nothing else in that image changed.
 
 ### Decisions log
+
+**Phase 12 — report what's missing (2026-11-23)**
+
+- **Anonymous OSM notes** (`POST /api/0.6/notes.json`, form body — no
+  preflight, no account, no key) from `src/data/sources/osmNotes.ts`; the
+  text is built by the pure `src/lib/notes.ts` (tested): what, suggested
+  tags, the walker's optional comment, "reported anonymously via PawPath",
+  "please check on the ground", ≤ 2,000 characters.
+- **Permanent features only**: bench, waste bin, dog-waste bin, poop-bag
+  dispenser, drinking-water tap. Never water, off-leash or anything temporary.
+- **Two ways in**: a ⚑ button ("Report something missing") shows a crosshair
+  at 30 % of the map height (`REPORT_CROSSHAIR_Y`) — first placed at the
+  centre, where the sheet covered it — and the map reports the point under
+  it; and "Not there anymore? Report it" in popups of benches, bins and taps,
+  which links the mapped object.
+- **One note per minute per browser** (`NOTE_MIN_INTERVAL_MS`, localStorage),
+  enforced in the source; the sheet says the note is public and anonymous and
+  shows exactly what will be sent; after sending, a link to the note.
+- `VITE_OSM_NOTES_URL` can point at the OSM dev API for manual testing.
+  Browser tests intercept the request — no real notes were created.
 
 **Phase 11, step 1 — PWA (2026-11-23)**
 

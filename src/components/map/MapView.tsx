@@ -19,7 +19,7 @@ import {
   MAP_STYLE_URL,
 } from '../../config';
 import { SOURCE_ATTRIBUTION } from '../../data/attribution';
-import { isLayerKey, type FeatureLevel, type LayerKey } from '../../data/layers';
+import { isFeatureLevel, isLayerKey, type FeatureLevel, type LayerKey } from '../../data/layers';
 import { GLYPHS, registerIcons } from '../../map/icons';
 import type { PawBySurface } from '../../lib/conditions/pawBySurface';
 import type { WaterWarnings } from '../../data/sources/waterWarnings';
@@ -31,8 +31,9 @@ import {
   surfacePaint,
   waterIcon,
 } from '../../map/pawpathLayers';
-import { popupModel, type PopupContext } from '../../map/popupModel';
+import { osmUrlFor, popupModel, type PopupContext } from '../../map/popupModel';
 import { warmBasemap } from '../../map/warmBasemap';
+import { reportKindFor, type ReportKind } from '../../lib/notes';
 import type { LngLat, RouteSegment } from '../../lib/routing/route';
 import { palette, pawRisk } from '../../styles/tokens';
 
@@ -114,6 +115,14 @@ export interface MapViewProps {
   readonly onAttributionHeight: (px: number) => void;
   /** The map could not start (no WebGL, or the GPU context was lost). */
   readonly onMapError: (message: string) => void;
+  /**
+   * While set, reports the map position under a screen point (fractions of
+   * the map's width and height) on every move — the report crosshair.
+   */
+  readonly crosshair: { readonly x: number; readonly y: number } | undefined;
+  readonly onCrosshairMove: (p: { lat: number; lng: number }) => void;
+  /** Tapped "Not there anymore?" in a bench, bin or tap popup. */
+  readonly onReportGone: (gone: { kind: ReportKind; lat: number; lng: number; osmUrl: string | undefined }) => void;
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -124,6 +133,7 @@ function popupContent(
   properties: Record<string, unknown>,
   featureId: unknown,
   context: PopupContext,
+  onReportGone: (() => void) | undefined,
 ): HTMLElement {
   const model = popupModel(layer, properties, featureId, context);
   const root = document.createElement('div');
@@ -190,6 +200,14 @@ function popupContent(
     link.textContent = 'Something wrong? Fix it on OpenStreetMap';
     root.append(link);
   }
+  if (onReportGone !== undefined) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'mt-2 block min-h-[44px] w-full rounded-full bg-creamDeep px-3 text-sm font-bold text-ink';
+    button.textContent = 'Not there anymore? Report it';
+    button.addEventListener('click', onReportGone);
+    root.append(button);
+  }
   return root;
 }
 
@@ -208,13 +226,16 @@ export default function MapView({
   fit,
   onAttributionHeight,
   onMapError,
+  onReportGone,
+  crosshair,
+  onCrosshairMove,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const styleReady = useRef(false);
   // Latest props for handlers registered once.
-  const latest = useRef({ tilesUrl, enabledLayers, disabledLevels, pawBySurface, warnings, userPosition, onViewportChange, onDropPin, route });
-  latest.current = { tilesUrl, enabledLayers, disabledLevels, pawBySurface, warnings, userPosition, onViewportChange, onDropPin, route };
+  const latest = useRef({ tilesUrl, enabledLayers, disabledLevels, pawBySurface, warnings, userPosition, onViewportChange, onDropPin, route, onReportGone });
+  latest.current = { tilesUrl, enabledLayers, disabledLevels, pawBySurface, warnings, userPosition, onViewportChange, onDropPin, route, onReportGone };
   const markers = useRef<maplibregl.Marker[]>([]);
 
   /** Adds our source and layers if the style is ready and the URL known. Idempotent. */
@@ -554,13 +575,31 @@ export default function MapView({
       const [hit] = map.queryRenderedFeatures(event.point, { layers });
       const layer = hit?.sourceLayer;
       if (hit === undefined || layer === undefined || !isLayerKey(layer)) return;
-      new maplibregl.Popup({ closeButton: false, maxWidth: '260px' })
+      const level = hit.properties['level'];
+      const kind = reportKindFor(layer, typeof level === 'string' && isFeatureLevel(level) ? level : undefined);
+      const at =
+        hit.geometry.type === 'Point'
+          ? { lng: hit.geometry.coordinates[0] as number, lat: hit.geometry.coordinates[1] as number }
+          : { lng: event.lngLat.lng, lat: event.lngLat.lat };
+      const popup = new maplibregl.Popup({ closeButton: false, maxWidth: '260px' });
+      popup
         .setLngLat(event.lngLat)
         .setDOMContent(
-          popupContent(layer, hit.properties, hit.id, {
-            ...(latest.current.pawBySurface === undefined ? {} : { pawBySurface: latest.current.pawBySurface }),
-            warnings: latest.current.warnings,
-          }),
+          popupContent(
+            layer,
+            hit.properties,
+            hit.id,
+            {
+              ...(latest.current.pawBySurface === undefined ? {} : { pawBySurface: latest.current.pawBySurface }),
+              warnings: latest.current.warnings,
+            },
+            kind === undefined
+              ? undefined
+              : () => {
+                  popup.remove();
+                  latest.current.onReportGone({ kind, ...at, osmUrl: osmUrlFor(hit.id) });
+                },
+          ),
         )
         .addTo(map);
     });
@@ -622,6 +661,23 @@ export default function MapView({
     if (map !== null) syncRoute(map);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route?.waypoints, route?.segments, route === undefined]);
+
+  // Report crosshair: where on the map the fixed screen point is.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map === null || crosshair === undefined) return;
+    const emit = (): void => {
+      const canvas = map.getCanvas();
+      const p = map.unproject([canvas.clientWidth * crosshair.x, canvas.clientHeight * crosshair.y]);
+      onCrosshairMove({ lat: p.lat, lng: p.lng });
+    };
+    emit();
+    map.on('move', emit);
+    return () => {
+      map.off('move', emit);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [crosshair?.x, crosshair?.y]);
 
   useEffect(() => {
     if (fit === undefined) return;

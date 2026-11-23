@@ -402,6 +402,21 @@ export const ROUTE_OFF_LEASH_FACTOR = 0.85;
 /** Share of the asphalt heat penalty applied to ways with no mapped surface. */
 export const ROUTE_UNKNOWN_SURFACE_HEAT_SHARE = 0.5;
 
+// ---------------------------------------------------------------------------
+// Reporting what's missing (Phase 12) — anonymous OpenStreetMap notes.
+// ---------------------------------------------------------------------------
+
+/** OSM notes API (JSON). `VITE_OSM_NOTES_URL` can point at the OSM dev server for testing. */
+export const OSM_NOTES_URL: string = ENV['VITE_OSM_NOTES_URL'] ?? 'https://api.openstreetmap.org/api/0.6/notes.json';
+/** Public page of a note, `{id}` replaced. */
+export const OSM_NOTE_PAGE = 'https://www.openstreetmap.org/note/{id}';
+/** One note per minute per browser — volunteers read every one. */
+export const NOTE_MIN_INTERVAL_MS = 60_000;
+/** Where the report crosshair sits, as a fraction of the map height (above the sheet). */
+export const REPORT_CROSSHAIR_Y = 0.3;
+/** OSM rejects longer note texts. */
+export const NOTE_MAX_LENGTH = 2_000;
+
 export const STORAGE_KEYS = {
   lastLocation: 'pawpath.lastLocation.v1',
   disclaimerAccepted: 'pawpath.disclaimer.v1',
@@ -411,4 +426,5 @@ export const STORAGE_KEYS = {
   /** Prefix: one entry per grid cell, `${prefix}${lat},${lng}`. */
   conditionsCachePrefix: 'pawpath.conditions.v1:',
   savedRoutes: 'pawpath.routes.v1',
+  lastNoteAt: 'pawpath.lastNoteAt.v1',
 } as const;
