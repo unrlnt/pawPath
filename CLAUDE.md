@@ -515,6 +515,16 @@ Constraints that keep this compatible with §2:
   generated Planetiler schema, its features land in the same source-layers,
   and its licence goes into `SOURCE_ATTRIBUTION` (`src/data/attribution.ts`).
   Nothing is built for this until the phase starts.
+- **Owner decision (2026-11-23): only country-wide sources.** No connector is
+  built per municipality; Phase 8 starts when one source covers at least a
+  whole country. Research of the same day, so it is not repeated: Almere
+  publishes its off-leash areas only as PDF maps in the official
+  designation decision (latest Oct 2022); municipal open data exists for
+  Eindhoven, Breda (CC0), Den Haag (CC0), Alkmaar (public domain), Dronten
+  (CC0), Nijmegen (CC BY 4.0), Gooise Meren (CC BY-SA), Schiedam, Hilversum
+  — each with its own schema, and several mix dog toilet spots
+  (*uitlaatplaatsen*, usually leashed) with real off-leash areas. No national
+  dataset found on data.overheid.nl or PDOK.
 
 ---
 
@@ -531,7 +541,7 @@ Constraints that keep this compatible with §2:
       superseded by Phase 2R.)*
 - [x] Phase 2R — Tile pipeline and map rebuild *(done 2026-11-21: verified
       on a Flevoland build — features render around Almere at z14 from our own
-      tiles. NL+DE and planet builds still to run, on the owner's server.)*
+      tiles. NL+DE built on the owner's server 2026-11-23; planet not yet.)*
 - [x] Phase 3 — Conditions engine *(done 2026-11-21: Open-Meteo forecast + air
       quality, paw model, walk and rain windows, seasonal advisories,
       collapsible card; verified in a headless browser at Almere with live data)*
@@ -544,12 +554,15 @@ Constraints that keep this compatible with §2:
 - [x] Phase 6 — Water warnings *(done 2026-11-22 for what exists: 21,973
       official EU bathing sites in the tiles, three-state rendering, optional
       warnings file. **No live warnings source** is usable yet — see below.)*
-- [~] Phase 7 — Public launch *(code done 2026-11-22: error/offline/first-build
-      states, attribution always visible, security headers, cacheable chunks,
-      metadata, NL+DE default, Coolify guide; production image tested here.
-      Public repo `unrlnt/pawPath` created with clean history only.
-      **Owner steps left:** merge the PR to `main`, deploy on Coolify.)*
-- [ ] Phase 8 — Regional enrichment (post-launch)
+- [x] Phase 7 — Public launch *(done 2026-11-23: live at
+      https://pawpath.unrulent.com — Coolify from `unrlnt/pawPath` `main`,
+      Cloudflare in front, NL+DE tiles (1.31 GB). Basemap, our layers, search
+      suggestions and conditions confirmed by the owner on a phone. Four
+      deploy fixes on the way: Geofabrik 404 → mirror fallback, empty-EEA
+      crash → placeholder, http location message, empty build args → defaults.
+      See "First deploy" below.)*
+- [ ] Phase 8 — Regional enrichment *(on hold: waits for a country-wide
+      source, owner 2026-11-23)*
 - [x] Phase 9 — Route planner *(done 2026-11-22, pulled forward before
       Phase 7: in-browser A* on the `walk` tile layer, dog- and heat-aware;
       drag stops and the line, undo, round trip, save, share link, GPX,
@@ -557,7 +570,9 @@ Constraints that keep this compatible with §2:
       Verified in the browser at Almere. Routing *via* amenities: after
       launch.)*
 - [ ] Phase 10 — Community mirrors *(idea)*
-- [ ] Phase 11 — Mobile app *(idea: PWA first, Capacitor later)*
+- [~] Phase 11 — Mobile app *(step 1, PWA, done 2026-11-23: installable,
+      offline shell and offline map for areas already viewed; verified in
+      Chromium. Capacitor not started.)*
 - [ ] Phase 12 — Report what's missing *(idea: anonymous OSM Notes, permanent
       features only)*
 
@@ -701,7 +716,37 @@ proxy certificate in a throwaway copy), Flevoland tiles mounted:
 
 ### Decisions log
 
+**Phase 11, step 1 — PWA (2026-11-23)**
+
+- **Installable**: `manifest.webmanifest` (standalone, portrait, cream
+  theme), terracotta paw icons 192/512 + maskable 512 + Apple touch icon,
+  rendered from one SVG. Chromium reports no installability errors.
+- **Hand-written service worker** (`public/sw.js`, no plugin): page network
+  first with cached fallback; `/assets/*` cache first (hashed); `/tiles/*.json`
+  network first; OpenFreeMap cache first (≤ 1,500 entries); weather and search
+  untouched (they handle offline themselves); registered in production on
+  secure origins only.
+- **`.pmtiles` byte ranges are cached one by one** (the Cache API cannot store
+  206): stored as 200 under `…pmtiles?pawpath-range=bytes=a-b`, answered as
+  206, ≤ 600 ranges. Safe because file names are immutable per build.
+  **Bug caught in testing:** the first version keyed ranges with a
+  `#fragment`, which cache matching *ignores* — every range was answered with
+  the first one cached (the header), corrupting tiles even online. Now a query
+  parameter; the cache was renamed (`-v2`) so a phone holding the bad entries
+  drops them.
+- Verified with the real Caddyfile in the Caddy image: `sw.js` no-cache,
+  manifest `application/manifest+json`; after one online visit, an offline
+  reload shows basemap, benches, paw-coloured paths and shade.
+- Caddy: `sw.js` `no-cache`, manifest 1 h with its content type.
+
 **First deploy (2026-11-23)**
+
+- **Launched.** Owner confirmed on the live site: map, our layers, search
+  suggestions. Benches and bins appeared once their chips were switched on;
+  live tiles checked per city (one z14 tile each): Almere 185 benches / 19
+  bins, Amsterdam 305 / 80, Utrecht 299 / 398, Berlin 405 / 253, Köln 320 /
+  409 + 12 bag dispensers. **Owner decision: benches and bins stay off by
+  default** (§8 default set unchanged: shade, off-leash, water).
 
 - **Coolify deploy worked (1.5 min), the first tile build did not**:
   `download.geofabrik.de/europe/netherlands-latest.osm.pbf` → 404, so the
@@ -749,6 +794,14 @@ proxy certificate in a throwaway copy), Flevoland tiles mounted:
   `config.ts` drops empty values (tested); verified by building with both set
   to `''`. Also: the search spinner bounced instead of spinning (`animate-spin`
   overwrote the centring transform) — split into two elements.
+- **No bathing sites live: the EEA service is intermittent.** It answered at
+  08:16 on 2026-11-23 and reset every connection three hours later (from
+  the sandbox too), so the server's build used the placeholder. Fix: a
+  **bundled copy** in `tools/tiles/data/bathing-waters.geojson.gz` (21,973
+  sites, 2022 season, 858 KB, no personal data — scanned), used when the
+  live fetch fails and no earlier download holds real sites; curl now also
+  retries dropped connections. Refresh the bundle by hand from a good fetch
+  when the EEA publishes a new season.
 - **Cloudflare injects its Web Analytics beacon** into the page; our CSP
   blocks it (`script-src 'self'`). Left blocked on purpose — the app promises
   "nothing tracked". The owner can switch Web Analytics / RUM off for the

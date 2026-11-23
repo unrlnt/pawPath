@@ -14,6 +14,12 @@
 # On any failure the previous OUT file is kept; if there is none (or it holds
 # no real site), a placeholder is written so the tile build still succeeds (no
 # bathing spots is "nothing drawn", which §6 allows; a broken build is not).
+# Order of fallbacks: the previous download (if it holds real sites), then
+# the copy bundled in this repo (tools/tiles/data/, refreshed by hand from a
+# good fetch — classifications change once a year), then the placeholder.
+# The EEA service is intermittent: on 2026-11-23 it answered at 08:16 and
+# reset every connection three hours later, so the server's builds had no
+# bathing sites at all until the bundle existed.
 # The placeholder is ONE point without `bwid`, not an empty collection:
 # Planetiler 0.10.2 crashes on a GeoJSON file with zero features (first real
 # deploy, 2026-11-23), and the schema drops features without `bwid`.
@@ -32,17 +38,25 @@ log() { printf '[bathing %s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
 
 PLACEHOLDER='{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[0,0]},"properties":{"placeholder":"true"}}]}'
 
+BUNDLED="$(cd "$(dirname "$0")" && pwd)/data/bathing-waters.geojson.gz"
+
+has_sites() { jq -e '[.features[] | select(.properties.bwid != null)] | length > 0' "$1" >/dev/null 2>&1; }
+
 keep_previous() {
   log "WARNING: $1 — keeping the previous bathing-water file"
-  # No previous file, or an earlier empty one: write the placeholder.
-  if [[ ! -s "$OUT" ]] || ! jq -e '[.features[] | select(.properties.bwid != null)] | length > 0' "$OUT" >/dev/null 2>&1; then
-    echo "$PLACEHOLDER" > "$OUT"
-    log "no usable previous file: wrote a placeholder (no bathing sites in this build)"
+  if [[ -s "$OUT" ]] && has_sites "$OUT"; then exit 0; fi
+  if [[ -s "$BUNDLED" ]] && gzip -dc "$BUNDLED" > "$OUT.tmp" && has_sites "$OUT.tmp"; then
+    mv -f "$OUT.tmp" "$OUT"
+    log "no usable previous file: using the bundled copy ($(jq '.features | length' "$OUT") sites, season $(jq -r '.features[0].properties.quality_year' "$OUT"))"
+    exit 0
   fi
+  rm -f "$OUT.tmp"
+  echo "$PLACEHOLDER" > "$OUT"
+  log "no usable previous file or bundle: wrote a placeholder (no bathing sites in this build)"
   exit 0
 }
 
-year=$(curl -fsS --retry 3 -m 60 "$SERVICE?f=json" \
+year=$(curl -fsS --retry 3 --retry-all-errors --retry-delay 10 -m 60 "$SERVICE?f=json" \
   | jq -r '[.fields[] | select(.name == "qualityStatus") | .alias][0] // empty') || keep_previous "metadata request failed"
 [[ "$year" =~ ^[0-9]{4}$ ]] || keep_previous "unexpected classification year '$year'"
 
@@ -50,7 +64,7 @@ offset=0
 page=0
 while :; do
   url="$SERVICE/query?where=countryCode%3C%3E%27EU%27&outFields=bathingWaterIdentifier,bathingWaterName,bwWaterCategory,qualityStatus,bwProfileLink,countryCode&returnGeometry=true&outSR=4326&orderByFields=OBJECTID&resultOffset=$offset&resultRecordCount=$PAGE&f=geojson"
-  curl -fsS --retry 3 --retry-delay 10 -m 300 -o "$TMP/page-$page.geojson" "$url" || keep_previous "page $page failed"
+  curl -fsS --retry 3 --retry-all-errors --retry-delay 10 -m 300 -o "$TMP/page-$page.geojson" "$url" || keep_previous "page $page failed"
   count=$(jq '.features | length' "$TMP/page-$page.geojson") || keep_previous "page $page is not GeoJSON"
   more=$(jq -r '.exceededTransferLimit // false' "$TMP/page-$page.geojson")
   log "page $page: $count sites"

@@ -44,11 +44,23 @@ else
   exit 64
 fi
 
+# What a build depends on besides OSM: the regions and the build recipe
+# (schema, osmium filter, bundled data). A deploy that changes any of them
+# rebuilds right away instead of waiting for the weekly rebuild.
+build_key() {
+  {
+    echo "$TILE_REGIONS"
+    cat "$TILES_DIR/pawpath.schema.yml" "$TILES_DIR/osmium-filters.txt"
+    cat "$TILES_DIR"/data/* 2>/dev/null
+  } | sha256sum | cut -d' ' -f1
+}
+BUILD_KEY=$(build_key)
+
 needs_build() {
   [[ ! -f "$OUT_DIR/manifest.json" ]] && return 0
   [[ -n $(find "$OUT_DIR/manifest.json" -mtime "+$((REBUILD_AFTER_DAYS - 1))") ]] && return 0
-  # A different region list than the one last built → rebuild now.
-  [[ "$(cat "$OUT_DIR/.regions" 2>/dev/null)" != "$TILE_REGIONS" ]] && return 0
+  # Different regions or a changed recipe than the last build → rebuild now.
+  [[ "$(cat "$OUT_DIR/.build-key" 2>/dev/null)" != "$BUILD_KEY" ]] && return 0
   return 1
 }
 
@@ -67,6 +79,7 @@ while true; do
     log "starting build"
     if "$TILES_DIR/build.sh" "$OUT_DIR" "${SOURCES[@]}"; then
       echo "$TILE_REGIONS" > "$OUT_DIR/.regions"
+      echo "$BUILD_KEY" > "$OUT_DIR/.build-key"
       log "build finished"
     elif [[ -f "$OUT_DIR/manifest.json" ]]; then
       log "build FAILED — keeping the previous tiles, retrying after $CHECK_INTERVAL"
