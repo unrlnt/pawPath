@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { GEOLOCATION_MAX_AGE_MS, GEOLOCATION_TIMEOUT_MS } from '../../config';
+import { GEOLOCATION_TIMEOUT_MS, GEOLOCATION_WATCH_MAX_AGE_MS } from '../../config';
 
 export type GeolocationStatus =
   | 'idle'
@@ -45,6 +45,13 @@ const MESSAGES: Record<GeolocationStatus | 'insecure', string> = {
   positionUnavailable: 'Your device could not determine a position. Try again, or search for a place.',
 };
 
+/**
+ * Your position, kept live: after the first request the browser is watched
+ * (`watchPosition`) while the page is visible, so the dot moves with you.
+ * The watch pauses when the page is hidden (battery) and resumes when it is
+ * shown again. Once a position is known, a later timeout keeps the last
+ * position instead of showing an error: the watch simply tries again.
+ */
 export function useGeolocation(): GeolocationState & { request: () => void } {
   const [state, setState] = useState<GeolocationState>({
     status: 'idle',
@@ -52,31 +59,18 @@ export function useGeolocation(): GeolocationState & { request: () => void } {
     message: '',
   });
   const mounted = useRef(true);
+  const watchId = useRef<number | undefined>(undefined);
+  /** Set once the walker asked for their location (on load, or the ◎ button). */
+  const wanted = useRef(false);
 
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
+  const stopWatch = useCallback(() => {
+    if (watchId.current !== undefined) navigator.geolocation.clearWatch(watchId.current);
+    watchId.current = undefined;
   }, []);
 
-  const request = useCallback(() => {
-    // `navigator.geolocation` is absent entirely on insecure origins in some
-    // browsers, and present-but-always-failing in others.
-    // On plain http (e.g. a test domain before TLS is set up) browsers refuse
-    // location without ever asking. Say so, instead of "blocked by you".
-    if (typeof window !== 'undefined' && window.isSecureContext === false) {
-      setState({ status: 'unavailable', position: undefined, message: MESSAGES.insecure });
-      return;
-    }
-    if (typeof navigator === 'undefined' || navigator.geolocation === undefined) {
-      setState({ status: 'unavailable', position: undefined, message: MESSAGES.unavailable });
-      return;
-    }
-
-    setState({ status: 'prompting', position: undefined, message: MESSAGES.prompting });
-
-    navigator.geolocation.getCurrentPosition(
+  const startWatch = useCallback(() => {
+    stopWatch();
+    watchId.current = navigator.geolocation.watchPosition(
       (position) => {
         if (!mounted.current) return;
         setState({
@@ -98,15 +92,56 @@ export function useGeolocation(): GeolocationState & { request: () => void } {
               ? 'timeout'
               : 'positionUnavailable';
         console.warn('[geolocation] failed', { code: error.code, message: error.message });
-        setState({ status, position: undefined, message: MESSAGES[status] });
+        if (status === 'denied') stopWatch();
+        // Already have a fix: keep it; the watch keeps trying on its own.
+        setState((current) =>
+          status !== 'denied' && current.position !== undefined
+            ? current
+            : { status, position: undefined, message: MESSAGES[status] },
+        );
       },
       {
         enableHighAccuracy: true,
         timeout: GEOLOCATION_TIMEOUT_MS,
-        maximumAge: GEOLOCATION_MAX_AGE_MS,
+        maximumAge: GEOLOCATION_WATCH_MAX_AGE_MS,
       },
     );
-  }, []);
+  }, [stopWatch]);
+
+  useEffect(() => {
+    mounted.current = true;
+    const onVisibility = (): void => {
+      if (!wanted.current) return;
+      if (document.visibilityState === 'hidden') stopWatch();
+      else startWatch();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      mounted.current = false;
+      document.removeEventListener('visibilitychange', onVisibility);
+      if (watchId.current !== undefined && typeof navigator !== 'undefined') stopWatch();
+    };
+  }, [startWatch, stopWatch]);
+
+  const request = useCallback(() => {
+    // On plain http (e.g. a test domain before TLS is set up) browsers refuse
+    // location without ever asking. Say so, instead of "blocked by you".
+    if (typeof window !== 'undefined' && window.isSecureContext === false) {
+      setState({ status: 'unavailable', position: undefined, message: MESSAGES.insecure });
+      return;
+    }
+    // `navigator.geolocation` is absent entirely on insecure origins in some
+    // browsers, and present-but-always-failing in others.
+    if (typeof navigator === 'undefined' || navigator.geolocation === undefined) {
+      setState({ status: 'unavailable', position: undefined, message: MESSAGES.unavailable });
+      return;
+    }
+    wanted.current = true;
+    setState((current) =>
+      current.position !== undefined ? current : { status: 'prompting', position: undefined, message: MESSAGES.prompting },
+    );
+    startWatch();
+  }, [startWatch]);
 
   return { ...state, request };
 }
