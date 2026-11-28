@@ -41,6 +41,8 @@ import {
 import NearbySheet from '../nearby/NearbySheet';
 import { useNearby } from '../nearby/useNearby';
 import ReportSheet, { ReportPlaceBar, type ReportTarget } from '../report/ReportSheet';
+import { useOsmSession } from '../report/useOsmSession';
+import { pendingAdds } from '../../data/sources/osmEdit';
 import RoutePanel, { SavedRoutesSheet } from '../route/RoutePanel';
 import { useRoutePlanner } from '../route/useRoutePlanner';
 import { useWatchPosition } from '../route/useWatchPosition';
@@ -91,6 +93,19 @@ export default function MapPage() {
   const [reportStep, setReportStep] = useState<'place' | 'details'>('place');
   const [reportAt, setReportAt] = useState<{ lat: number; lng: number } | undefined>(undefined);
   const placing = report?.change === 'missing' && reportStep === 'place';
+  /** Points added to OSM from this browser, marked until the weekly build has them. */
+  const [added, setAdded] = useState(() => pendingAdds());
+  // Signing in leaves the app for OSM; an open report comes back with it.
+  const osm = useOsmSession((resume) => {
+    const r = resume as { report?: ReportTarget; reportAt?: { lat: number; lng: number } } | undefined;
+    if (r?.report === undefined) return;
+    setReport(r.report);
+    if (r.reportAt !== undefined) {
+      setReportAt(r.reportAt);
+      setReportStep('details');
+      setCentre(r.reportAt);
+    }
+  });
   const crosshair = useMemo(() => (placing ? { x: 0.5, y: REPORT_CROSSHAIR_Y } : undefined), [placing]);
   const [warnings, setWarnings] = useState<WaterWarnings>(NO_WARNINGS);
 
@@ -294,6 +309,7 @@ export default function MapPage() {
           onMapError={setMapError}
           crosshair={crosshair}
           highlight={highlight}
+          addedByYou={added}
           onCrosshairMove={setCrosshairAt}
           onUserPan={() => setFollowing(false)}
           onReportGone={(gone) => {
@@ -331,6 +347,7 @@ export default function MapPage() {
           {tilesError !== undefined ? <DataUnavailable message={tilesError} /> : null}
           <ZoomHint waiting={waiting} />
           {geolocation.message !== '' ? <Banner tone="info">{geolocation.message}</Banner> : null}
+          {osm.message !== undefined ? <Banner tone="info">{osm.message}</Banner> : null}
         </div>
 
         <div
@@ -430,6 +447,14 @@ export default function MapPage() {
                     },
                   }
                 : {})}
+              osm={{
+                available: osm.available,
+                session: osm.session,
+                signIn: () => osm.signIn({ report, reportAt }),
+                signOut: osm.signOut,
+                expire: osm.expire,
+              }}
+              onEdited={() => setAdded(pendingAdds())}
               onClose={closeReport}
             />
           ) : planner.active ? (
@@ -482,6 +507,7 @@ export default function MapPage() {
               fitTo(route.waypoints);
             }}
             onDelete={planner.remove}
+            onRestore={planner.restore}
             onClose={() => setSavedOpen(false)}
           />
         ) : null}

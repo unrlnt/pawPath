@@ -441,6 +441,38 @@ export const REPORT_START_ZOOM = 18;
 /** OSM rejects longer note texts. */
 export const NOTE_MAX_LENGTH = 2_000;
 
+// ---------------------------------------------------------------------------
+// Signing in with OpenStreetMap (owner, 2026-11-28): walkers WITH an OSM
+// account can add and remove amenities directly. OAuth 2.0 with PKCE runs in
+// the browser — no server of ours, no accounts of ours; the token stays on
+// the device. Everyone else keeps the anonymous notes.
+// ---------------------------------------------------------------------------
+
+/**
+ * The OAuth 2 client id from the owner's app registration on
+ * openstreetmap.org (public by design — PKCE apps have no secret). Unset =
+ * sign-in hidden. Point the two URLs below at the OSM dev server to test
+ * (it needs its own registration there).
+ */
+export const OSM_OAUTH_CLIENT_ID: string | undefined = ENV['VITE_OSM_OAUTH_CLIENT_ID'];
+export const OSM_WEBSITE_URL: string = ENV['VITE_OSM_WEBSITE_URL'] ?? 'https://www.openstreetmap.org';
+export const OSM_API_URL: string = ENV['VITE_OSM_API_URL'] ?? 'https://api.openstreetmap.org';
+/** Read the display name; create and delete map data. Nothing else. */
+export const OSM_OAUTH_SCOPES = 'read_prefs write_api';
+/** Points you added stay marked on your map until the next weekly build has them. */
+export const OSM_PENDING_EDIT_MAX_AGE_MS = 8 * 24 * 60 * 60 * 1000;
+/**
+ * "Not there anymore" deletes a node only if every tag on it is one of these
+ * (plus the kind's own tags). Anything else — a name of a shop, a highway
+ * vertex, a relation member — falls back to a note for a mapper to judge.
+ */
+export const OSM_DELETABLE_EXTRA_KEYS = [
+  'amenity', 'waste', 'vending', 'backrest', 'armrest', 'material', 'colour', 'seats', 'direction',
+  'bottle', 'drinking_water', 'fountain', 'dog', 'wheelchair', 'fee', 'access', 'opening_hours',
+  'changing_table', 'unisex', 'male', 'female', 'operator', 'ref', 'check_date', 'survey:date',
+  'source', 'note', 'description', 'covered', 'lit', 'level', 'indoor',
+] as const;
+
 export const STORAGE_KEYS = {
   lastLocation: 'pawpath.lastLocation.v1',
   disclaimerAccepted: 'pawpath.disclaimer.v1',
@@ -451,4 +483,8 @@ export const STORAGE_KEYS = {
   conditionsCachePrefix: 'pawpath.conditions.v1:',
   savedRoutes: 'pawpath.routes.v1',
   lastNoteAt: 'pawpath.lastNoteAt.v1',
+  /** OSM access token + display name (only for walkers who signed in). */
+  osmSession: 'pawpath.osmSession.v1',
+  /** Points this browser added to OSM, shown until the tiles have them. */
+  osmPendingAdds: 'pawpath.osmPendingAdds.v1',
 } as const;

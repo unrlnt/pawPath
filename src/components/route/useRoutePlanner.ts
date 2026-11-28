@@ -12,7 +12,7 @@ import { pawBandsByExposure } from '../../lib/conditions/pawBySurface';
 import type { HourPoint } from '../../lib/conditions/types';
 import { bestInsertIndex } from '../../lib/routing/edit';
 import { chooseStop, STOP_KINDS, type Poi, type StopKind } from '../../lib/routing/stops';
-import { decodeRouteHash, encodeRouteHash, isSavedRouteList, type SavedRoute } from '../../lib/routing/io';
+import { decodeRouteHash, encodeRouteHash, isSavedRouteList, mergeWalks, type SavedRoute } from '../../lib/routing/io';
 import { planRoute, type LngLat, type RouteResult } from '../../lib/routing/route';
 import { readStored, writeStored } from '../../lib/storage';
 
@@ -174,6 +174,17 @@ export function useRoutePlanner(tilesUrl: string | undefined, hour: HourPoint | 
     [saved],
   );
 
+  /** Walks from a backup file, added to the saved ones (duplicates skipped). */
+  const restore = useCallback(
+    (incoming: readonly SavedRoute[]): { added: number; skipped: number } => {
+      const merged = mergeWalks(saved, incoming, ROUTE_MAX_SAVED);
+      persist(merged.walks);
+      return { added: merged.added, skipped: merged.skipped };
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [saved],
+  );
+
   const shareUrl = (): string => {
     const url = new URL(window.location.href);
     url.hash = encodeRouteHash(state.waypoints, state.roundTrip);
@@ -218,6 +229,7 @@ export function useRoutePlanner(tilesUrl: string | undefined, hour: HourPoint | 
     open,
     startWith,
     remove,
+    restore,
     shareUrl,
   };
 }

@@ -51,7 +51,7 @@ export function Disclaimer() {
         Got it — let's walk
       </button>
       <p className="mt-2 text-center text-xs text-inkSoft">
-        Free, no login, nothing tracked.{' '}
+        Free, no account needed, nothing tracked.{' '}
         <a href={APP_CONTACT_URL} target="_blank" rel="noopener noreferrer" className="underline">
           Source &amp; feedback
         </a>

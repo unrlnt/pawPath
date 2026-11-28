@@ -17,6 +17,9 @@ services:
       args:
         VITE_MAP_STYLE_URL: ${VITE_MAP_STYLE_URL:-}
         VITE_PHOTON_URL: ${VITE_PHOTON_URL:-}
+        # Sign in with OpenStreetMap (optional): the client id of the OAuth 2 app
+        # registered on openstreetmap.org. Public by design. Unset = no sign-in.
+        VITE_OSM_OAUTH_CLIENT_ID: ${VITE_OSM_OAUTH_CLIENT_ID:-}
     environment:
       # Coolify: generates a URL for port 80 of this service. Harmless elsewhere.
       - SERVICE_FQDN_WEB_80
