@@ -8,7 +8,7 @@ import { useRef, useState } from 'react';
 
 import { ROUTE_WALK_KMH } from '../../config';
 import { formatDistance, formatMinutes, type Progress } from '../../lib/routing/edit';
-import { toGpx, type SavedRoute } from '../../lib/routing/io';
+import { parseWalksBackup, toGpx, walksBackup, type SavedRoute } from '../../lib/routing/io';
 import { STOP_KINDS, type StopKind } from '../../lib/routing/stops';
 import type { RoutePlanner } from './useRoutePlanner';
 
@@ -66,11 +66,11 @@ function ProfileBar({ result }: { result: Extract<RoutePlanner['status'], { kind
   );
 }
 
-function download(name: string, content: string): void {
-  const url = URL.createObjectURL(new Blob([content], { type: 'application/gpx+xml' }));
+function download(name: string, content: string, type = 'application/gpx+xml', extension = 'gpx'): void {
+  const url = URL.createObjectURL(new Blob([content], { type }));
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${name.replace(/[^\w\- ]+/g, '').trim() || 'pawpath-walk'}.gpx`;
+  a.download = `${name.replace(/[^\w\- ]+/g, '').trim() || 'pawpath-walk'}.${extension}`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
@@ -259,13 +259,30 @@ export function SavedRoutesSheet({
   saved,
   onOpen,
   onDelete,
+  onRestore,
   onClose,
 }: {
   saved: readonly SavedRoute[];
   onOpen: (route: SavedRoute) => void;
   onDelete: (id: string) => void;
+  onRestore: (walks: readonly SavedRoute[]) => { added: number; skipped: number };
   onClose: () => void;
 }) {
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [message, setMessage] = useState<string | undefined>(undefined);
+  const restoreFrom = async (file: File): Promise<void> => {
+    const walks = parseWalksBackup(await file.text());
+    if (walks === undefined) {
+      setMessage('That file is not a PawPath walks backup.');
+      return;
+    }
+    const { added, skipped } = onRestore(walks);
+    setMessage(
+      added === 0
+        ? 'Nothing new in that backup — those walks are already here.'
+        : `Restored ${added} walk${added === 1 ? '' : 's'}${skipped > 0 ? ` (${skipped} already here or over the limit)` : ''}.`,
+    );
+  };
   return (
     <div className="pointer-events-auto absolute inset-0 z-40 flex items-end bg-ink/30" onClick={onClose}>
       <section
@@ -279,7 +296,46 @@ export function SavedRoutesSheet({
             Close
           </button>
         </div>
-        <p className="mt-1 text-sm text-inkSoft">Saved on this device only — there are no accounts.</p>
+        <p className="mt-1 text-sm text-inkSoft">
+          Saved on this device only — there are no accounts. Keep a backup file to move your walks to another phone.
+        </p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button
+            type="button"
+            className={quiet}
+            disabled={saved.length === 0}
+            onClick={() =>
+              download(
+                `pawpath-walks-${new Date().toISOString().slice(0, 10)}`,
+                walksBackup(saved),
+                'application/json',
+                'json',
+              )
+            }
+          >
+            Back up my walks
+          </button>
+          <button type="button" className={quiet} onClick={() => fileInput.current?.click()}>
+            Restore from a backup
+          </button>
+          <input
+            ref={fileInput}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            aria-label="Backup file"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = '';
+              if (file !== undefined) void restoreFrom(file);
+            }}
+          />
+        </div>
+        {message !== undefined ? (
+          <p className="mt-2 text-sm font-bold text-ink" role="status">
+            {message}
+          </p>
+        ) : null}
         {saved.length === 0 ? (
           <p className="mt-4 text-sm text-ink">No saved walks yet. Plan one and tap ♡ Save.</p>
         ) : (

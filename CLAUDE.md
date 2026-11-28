@@ -33,6 +33,11 @@ degrade outside the Netherlands.
    provider, no per-request compute that grows with traffic. Any design that
    needs a paid plan to serve more users is wrong.
 2. **No login, no registration, no accounts.** All user state in `localStorage`.
+   *One exception (owner, 2026-11-28): an optional "Sign in with
+   OpenStreetMap" for walkers who already have an OSM account, so they can
+   add and remove amenities directly. It is OAuth 2.0 with PKCE in the
+   browser — OSM is the account, the token stays on the device, PawPath
+   stores nothing and runs no server for it. No PawPath accounts, ever.*
 3. **Equal quality worldwide.** No feature may depend on a Netherlands-only data
    source unless there is a globally available fallback that is used by default.
    Country-specific sources are enrichment only. The data tiles are built from
@@ -718,6 +723,51 @@ proxy certificate in a throwaway copy), Flevoland tiles mounted:
   previous `tiles` image instead. Nothing else in that image changed.
 
 ### Decisions log
+
+**Sign in with OpenStreetMap; walks backup (2026-11-28, owner request)**
+
+- **Why**: the owner (and later others) wants to add amenities directly from
+  the phone — OSM's own editor is not usable there. Constraint §2.2 amended
+  (above): only OSM's own login, nothing of ours.
+- **How**: OAuth 2.0 authorization code + PKCE from the browser
+  (`src/data/sources/osmAuth.ts`), scopes `read_prefs write_api`, redirect
+  to the app root. The client id comes from the owner's app registration on
+  openstreetmap.org (`VITE_OSM_OAUTH_CLIENT_ID`, public by design; unset =
+  no sign-in anywhere). Token + display name in localStorage; sign-out
+  revokes it. `finishSignIn()` runs once per page load (React's double
+  start-up effect used the one-time code twice in the first test). An open
+  report survives the round trip to OSM (resumed from sessionStorage, the
+  route hash too).
+- **Where**: small, in the report sheet only — "Have an OpenStreetMap
+  account? Sign in" under the send button; signed in: "OpenStreetMap: name ·
+  Send a note instead · Sign out".
+- **What a signed-in walker can do** (`src/data/sources/osmEdit.ts`, XML
+  built by the pure, tested `src/lib/osmChange.ts`): **add** one node of a
+  fixed kind (bench, waste bin, dog-waste bin, bag dispenser
+  `amenity=vending_machine + vending=excrement_bags`, drinking-water tap,
+  public toilet) at the marked spot; **remove** a mapped node from "Not
+  there anymore" — only if it still has the kind's tags, no tags beyond
+  `OSM_DELETABLE_EXTRA_KEYS` (`name` only for toilets), and is in no way or
+  relation; otherwise it falls back to a note ("a mapper should look at
+  it"). Ways are never touched; no free tag editing. One small changeset per
+  edit (create → upload → close, closed even after a failed upload), comment
+  "Added a waste bin via PawPath", `created_by=PawPath`.
+- **Added points are marked "added by you"** on that phone for 8 days
+  (`OSM_PENDING_EDIT_MAX_AGE_MS`), until the weekly build has them.
+- **Not built (owner)**: accounts for walkers without OSM, sync of walks via
+  OSM, recording walked routes.
+- **Walks backup instead of accounts**: "My walks" has "Back up my walks"
+  (a `pawpath-walks-DATE.json` file) and "Restore from a backup" — each walk
+  validated, merged by id, newest first, capped at `ROUTE_MAX_SAVED`
+  (`walksBackup` / `parseWalksBackup` / `mergeWalks` in `io.ts`, tested).
+- Browser, against a **mocked** OSM (no real sign-in or edit from here):
+  sign-in → authorize with S256 challenge → back with the code → token
+  request with the verifier → the report reopened as "Add to the map";
+  added a waste bin (exact osmChange checked) → "added by you" pin; removed
+  a plain bench (node, ways, relations checked, delete at version 4); a bench
+  with `shop=kiosk` fell back to a note; sign-out revoked and forgot the
+  token. Backup: file downloaded, restored on an empty phone (2 walks),
+  again → "nothing new", a wrong file refused. No page errors.
 
 **Live location and "follow me" (2026-11-23, owner feedback after the first walk)**
 

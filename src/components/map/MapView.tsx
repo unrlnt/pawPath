@@ -135,6 +135,8 @@ export interface MapViewProps {
   readonly onCrosshairMove: (p: { lat: number; lng: number }) => void;
   /** A place to point out ("Find nearby" result). */
   readonly highlight: LngLat | undefined;
+  /** Points this walker added to OSM, marked until the weekly tiles have them. */
+  readonly addedByYou?: readonly { readonly lat: number; readonly lng: number; readonly label: string }[];
   /** Tapped "Not there anymore?" in a bench, bin or tap popup. */
   readonly onReportGone: (gone: { kind: ReportKind; lat: number; lng: number; osmUrl: string | undefined }) => void;
 }
@@ -247,6 +249,7 @@ export default function MapView({
   crosshair,
   onCrosshairMove,
   highlight,
+  addedByYou,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -715,6 +718,23 @@ export default function MapView({
       marker.remove();
     };
   }, [highlight?.[0], highlight?.[1]]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Points added by this walker: a small labelled pin, until the next build.
+  const addedKey = (addedByYou ?? []).map((p) => `${p.lat},${p.lng}`).join(';');
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map === null || addedByYou === undefined || addedByYou.length === 0) return;
+    const markers = addedByYou.map((p) => {
+      const el = document.createElement('div');
+      el.className =
+        'pointer-events-none flex items-center gap-1 rounded-full bg-cream/95 px-2 py-0.5 text-xs font-bold text-ink shadow-soft ring-2 ring-sageDeep';
+      el.textContent = `＋ ${p.label} (added by you)`;
+      return new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([p.lng, p.lat]).addTo(map);
+    });
+    return () => {
+      for (const m of markers) m.remove();
+    };
+  }, [addedKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Report crosshair: where on the map the fixed screen point is.
   useEffect(() => {

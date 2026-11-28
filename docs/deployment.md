@@ -85,6 +85,30 @@ keeps working offline in areas already viewed (map, our layers; weather and
 search need a connection). Updates arrive on the next launch with a
 connection.
 
+### Sign in with OpenStreetMap (optional)
+
+Walkers with an OSM account can add and remove benches, bins, bag
+dispensers, taps and toilets directly from the report sheet. Everyone else
+keeps the anonymous notes. It runs entirely in the browser (OAuth 2.0 with
+PKCE): no server, no accounts of ours, the token stays on the phone.
+
+1. On openstreetmap.org: **My settings → OAuth 2 applications → Register
+   new application**.
+   - Name: `PawPath`
+   - Redirect URIs: `https://pawpath.unrulent.com/` (the app root, with the
+     trailing slash, exactly)
+   - **Confidential application: unticked** (a browser app has no secret)
+   - Permissions: **Read user preferences** and **Modify the map**. Nothing else.
+2. Copy the **Client ID** (the secret it may show is not needed).
+3. In Coolify, add the environment variable `VITE_OSM_OAUTH_CLIENT_ID` with
+   that id and redeploy. It is a build argument, and public by design.
+
+Without the variable, the sign-in link simply does not appear.
+
+To test without touching the real map, register a second app on
+`https://master.apis.dev.openstreetmap.org` (a separate account there) and
+build with `VITE_OSM_WEBSITE_URL` and `VITE_OSM_API_URL` set to that host.
+
 ### When the builder rebuilds
 
 On first start, when the tiles are older than `REBUILD_AFTER_DAYS`, and when

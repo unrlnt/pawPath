@@ -17,6 +17,7 @@ ARG VITE_MAPTILER_KEY
 ARG VITE_TILES_MANIFEST_URL
 ARG VITE_PHOTON_URL
 ARG VITE_ADS_ENABLED
+ARG VITE_OSM_OAUTH_CLIENT_ID
 RUN npm run build && rm -rf dist/tiles
 
 # ---------------------------------------------------------------- web

@@ -9,13 +9,30 @@
 import { NOTE_MAX_LENGTH } from '../config';
 import type { FeatureLevel, LayerKey } from '../data/layers';
 
+/**
+ * `tags`: the human-readable suggestion in a note. `osmTags`: what a signed-in
+ * walker's "Add to the map" creates — the common, preset-style tagging.
+ */
 export const REPORT_KINDS = {
-  bench: { label: 'Bench', tags: 'amenity=bench' },
-  bin: { label: 'Waste bin', tags: 'amenity=waste_basket' },
-  dogBin: { label: 'Dog-waste bin', tags: 'amenity=waste_basket + waste=dog_excrement' },
-  bagDispenser: { label: 'Poop-bag dispenser', tags: 'vending=excrement_bags' },
-  drinkingWater: { label: 'Drinking-water tap', tags: 'amenity=drinking_water' },
-} as const;
+  bench: { label: 'Bench', tags: 'amenity=bench', osmTags: { amenity: 'bench' } },
+  bin: { label: 'Waste bin', tags: 'amenity=waste_basket', osmTags: { amenity: 'waste_basket' } },
+  dogBin: {
+    label: 'Dog-waste bin',
+    tags: 'amenity=waste_basket + waste=dog_excrement',
+    osmTags: { amenity: 'waste_basket', waste: 'dog_excrement' },
+  },
+  bagDispenser: {
+    label: 'Poop-bag dispenser',
+    tags: 'amenity=vending_machine + vending=excrement_bags',
+    osmTags: { amenity: 'vending_machine', vending: 'excrement_bags' },
+  },
+  drinkingWater: {
+    label: 'Drinking-water tap',
+    tags: 'amenity=drinking_water',
+    osmTags: { amenity: 'drinking_water' },
+  },
+  toilets: { label: 'Public toilet', tags: 'amenity=toilets', osmTags: { amenity: 'toilets' } },
+} as const satisfies Record<string, { label: string; tags: string; osmTags: Readonly<Record<string, string>> }>;
 
 export type ReportKind = keyof typeof REPORT_KINDS;
 export const REPORT_KIND_KEYS = Object.keys(REPORT_KINDS) as ReportKind[];
@@ -34,6 +51,7 @@ export interface Report {
 export function reportKindFor(layer: LayerKey, level: FeatureLevel | undefined): ReportKind | undefined {
   if (layer === 'benches') return 'bench';
   if (layer === 'drinkingWater') return 'drinkingWater';
+  if (layer === 'toilets') return 'toilets';
   if (layer === 'waste') return level === 'dog_bin' ? 'dogBin' : level === 'bag_dispenser' ? 'bagDispenser' : 'bin';
   return undefined;
 }
